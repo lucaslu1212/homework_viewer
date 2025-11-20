@@ -349,10 +349,12 @@ class StudentGUI:
             # 后台运行：最小化到系统托盘而不是关闭
             self.minimize_to_tray()
         else:
-            # 正常关闭：停止服务器并退出
-            if self.is_server_running:
-                self.server.stop_server()
-            self.root.destroy()
+            # 正常关闭：询问用户是否确认退出
+            if messagebox.askyesno("确认退出", "确定要退出作业查看器吗？"):
+                # 停止服务器并退出
+                if self.is_server_running:
+                    self.server.stop_server()
+                self.root.destroy()
     
     def minimize_to_tray(self):
         """最小化到系统托盘"""
@@ -488,6 +490,10 @@ Python版本: 3.x
     def quit_application(self, icon=None, item=None):
         """退出应用程序"""
         try:
+            # 询问用户是否确认退出
+            if not messagebox.askyesno("确认退出", "确定要退出作业查看器吗？"):
+                return
+            
             # 停止系统托盘图标
             if self.tray_icon:
                 self.tray_icon.stop()
