@@ -1,0 +1,7 @@
+# 安装PyInstaller
+pip install pyinstaller
+
+# 创建打包脚本 build_exe.py
+python build_exe.py
+
+# 打包完成后，exe文件将在 dist 目录下

@@ -1,0 +1,17 @@
+# 作业查看器系统依赖
+# Python 3.7+
+
+# 标准库模块（无需安装）
+# tkinter - GUI界面（Python自带）
+# socket - 网络通信（Python自带）
+# threading - 多线程（Python自带）
+# json - JSON数据处理（Python自带）
+# os - 操作系统接口（Python自带）
+# datetime - 日期时间处理（Python自带）
+# typing - 类型提示（Python自带）
+# subprocess - 子进程（Python自带）
+# sys - 系统相关（Python自带）
+
+# 第三方依赖
+pystray>=0.19.0
+Pillow>=8.0.0

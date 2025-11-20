@@ -1,0 +1,62 @@
+{
+  "homeworks": [
+    {
+      "id": 1,
+      "subject": "数学",
+      "content": "完成课后习题1-10题",
+      "class": "高一(1)班",
+      "teacher": "张老师",
+      "timestamp": "2025-11-18 18:12:30",
+      "status": "active"
+    },
+    {
+      "id": 2,
+      "subject": "语文",
+      "content": "背诵《静夜思》并默写",
+      "class": "高一(1)班",
+      "teacher": "李老师",
+      "timestamp": "2025-11-18 18:12:30",
+      "status": "active"
+    },
+    {
+      "id": 3,
+      "subject": "英语",
+      "content": "Write an essay about your hometown",
+      "class": "高二(1)班",
+      "teacher": "王老师",
+      "timestamp": "2025-11-18 18:12:30",
+      "status": "active"
+    }
+  ],
+  "messages": [
+    {
+      "id": 1,
+      "content": "老师，这道数学题我不会做",
+      "student": "小明",
+      "class": "高一(1)班",
+      "timestamp": "2025-11-18 18:12:30",
+      "status": "active"
+    },
+    {
+      "id": 2,
+      "content": "英语作业已经完成",
+      "student": "小红",
+      "class": "高一(1)班",
+      "timestamp": "2025-11-18 18:12:30",
+      "status": "active"
+    }
+  ],
+  "classes": [],
+  "subjects": [
+    "语文",
+    "数学",
+    "英语",
+    "物理",
+    "化学",
+    "生物",
+    "历史",
+    "地理",
+    "政治"
+  ],
+  "class_assignments": {}
+}
