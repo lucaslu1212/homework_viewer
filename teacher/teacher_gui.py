@@ -214,7 +214,10 @@ class TeacherGUI:
     def init_data(self):
         """初始化数据"""
         # 初始化1-8班
-        default_classes = ["1班", "2班", "3班", "4班", "5班", "6班", "7班", "8班"]
+        default_classes = [
+            "一年级1班", "一年级2班", "一年级3班", "一年级4班", "一年级5班", "一年级6班", "一年级7班", "一年级8班",
+            "二年级1班", "二年级2班", "二年级3班", "二年级4班", "二年级5班", "二年级6班", "二年级7班", "二年级8班"
+        ]
         for class_name in default_classes:
             self.data_manager.add_class(class_name)
         
@@ -919,21 +922,8 @@ class TeacherGUI:
         
         # 功能描述
         description = """
-主要功能：
-• 发送作业给学生
-• 实时接收学生提交的作业
-• 作业管理和统计
-• 全屏模式查看
-• 数据导出功能
-
-技术特性：
-• 基于Python Tkinter开发
-• 支持多客户端并发连接
-• 实时数据传输
-• 友好的图形界面
-
-开发时间：
-2025年11月20日
+作者：卢文睿
+开发时间：2025年
         """
         
         desc_label = tk.Label(main_frame, text=description, font=("Arial", 10), justify=tk.LEFT)

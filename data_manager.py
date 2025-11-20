@@ -44,16 +44,49 @@ class DataManager:
             print(f"保存数据失败: {e}")
             return False
     
-    def add_homework(self, subject: str, content: str, class_name: str, teacher_name: str = "老师") -> Dict[str, Any]:
-        """添加作业"""
+    def add_homework(self, subject: str, content: str, class_name: str, teacher_name: str = "老师", overwrite: bool = True, **kwargs) -> Dict[str, Any]:
+        """添加作业
+        
+        Args:
+            subject: 科目名称
+            content: 作业内容
+            class_name: 班级名称
+            teacher_name: 老师姓名
+            overwrite: 是否覆盖相同科目的作业（默认True）
+            **kwargs: 额外参数，如 timestamp, status 等
+        """
+        # 获取额外参数
+        timestamp = kwargs.get('timestamp', datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        status = kwargs.get('status', 'active')
+        
+        # 如果启用覆盖模式，先检查是否已存在相同科目的作业
+        if overwrite:
+            existing_homework = None
+            for homework in self.data["homeworks"]:
+                if homework["subject"] == subject and homework["class"] == class_name:
+                    existing_homework = homework
+                    break
+            
+            if existing_homework:
+                # 更新现有作业
+                existing_homework.update({
+                    "content": content,
+                    "teacher": teacher_name,
+                    "timestamp": timestamp,
+                    "status": status
+                })
+                self.save_data()
+                return existing_homework
+        
+        # 创建新作业
         homework = {
             "id": len(self.data["homeworks"]) + 1,
             "subject": subject,
             "content": content,
             "class": class_name,
             "teacher": teacher_name,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "active"
+            "timestamp": timestamp,
+            "status": status
         }
         self.data["homeworks"].append(homework)
         self.save_data()

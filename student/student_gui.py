@@ -81,7 +81,7 @@ class StudentGUI:
         self.run_in_background = tk.BooleanVar()
         background_check = ttk.Checkbutton(server_frame, text="后台运行", variable=self.run_in_background)
         background_check.grid(row=1, column=0, columnspan=4, sticky=tk.W, pady=(5, 0))
-        self.run_in_background.set(False)
+        self.run_in_background.set(True)
         
         # 已连接老师信息框架
         teachers_frame = ttk.LabelFrame(main_frame, text="已连接的老师", padding="10")
@@ -149,7 +149,10 @@ class StudentGUI:
     def init_data(self):
         """初始化数据"""
         # 添加默认班级
-        default_classes = ["高一(1)班", "高一(2)班", "高一(3)班", "高二(1)班", "高二(2)班"]
+        default_classes = [
+            "一年级1班", "一年级2班", "一年级3班", "一年级4班", "一年级5班", "一年级6班", "一年级7班", "一年级8班",
+            "二年级1班", "二年级2班", "二年级3班", "二年级4班", "二年级5班", "二年级6班", "二年级7班", "二年级8班"
+        ]
         for class_name in default_classes:
             self.data_manager.add_class(class_name)
         
@@ -257,6 +260,10 @@ class StudentGUI:
     
     def stop_server(self):
         """停止服务器"""
+        # 验证密码
+        if not self.verify_exit_password():
+            return
+        
         self.server.stop_server()
         self.is_server_running = False
         self.status_label.config(text="服务器未启动", foreground="red")
@@ -349,12 +356,77 @@ class StudentGUI:
             # 后台运行：最小化到系统托盘而不是关闭
             self.minimize_to_tray()
         else:
-            # 正常关闭：询问用户是否确认退出
-            if messagebox.askyesno("确认退出", "确定要退出作业查看器吗？"):
+            # 正常关闭：验证密码后才能退出
+            if self.verify_exit_password():
                 # 停止服务器并退出
                 if self.is_server_running:
                     self.server.stop_server()
                 self.root.destroy()
+
+    def verify_exit_password(self):
+        """验证退出密码"""
+        password_window = tk.Toplevel(self.root)
+        password_window.title("密码验证")
+        password_window.geometry("350x200")
+        password_window.resizable(False, False)
+        
+        # 居中显示
+        password_window.transient(self.root)
+        password_window.grab_set()
+        password_window.geometry("+%d+%d" % (
+            self.root.winfo_rootx() + 50,
+            self.root.winfo_rooty() + 50
+        ))
+        
+        # 提示标签
+        ttk.Label(password_window, text="退出密码验证", font=("Arial", 12, "bold")).pack(pady=(20, 10))
+        ttk.Label(password_window, text="请输入退出密码：", font=("Arial", 10)).pack(pady=(0, 5))
+        
+        # 密码输入框
+        password_var = tk.StringVar()
+        password_entry = ttk.Entry(password_window, textvariable=password_var, show="*", width=20, font=("Arial", 10))
+        password_entry.pack(pady=(0, 20))
+        password_entry.focus()
+        
+        # 验证结果标签
+        result_label = ttk.Label(password_window, text="", foreground="red", font=("Arial", 9))
+        result_label.pack()
+        
+        # 按钮框架
+        button_frame = ttk.Frame(password_window)
+        button_frame.pack(pady=(0, 20))
+        
+        # 验证结果变量
+        verify_result = {"success": False}
+        
+        def check_password():
+            """检查密码"""
+            password = password_var.get()
+            if password == "admin":
+                verify_result["success"] = True
+                password_window.destroy()
+            else:
+                result_label.config(text="密码错误，请重新输入")
+                password_var.set("")
+                password_entry.focus()
+        
+        def cancel():
+            """取消"""
+            verify_result["success"] = False
+            password_window.destroy()
+        
+        # 按钮
+        ttk.Button(button_frame, text="确定", command=check_password, width=10).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="取消", command=cancel, width=10).pack(side=tk.LEFT)
+        
+        # 绑定回车键
+        password_entry.bind('<Return>', lambda event: check_password())
+        password_entry.bind('<Escape>', lambda event: cancel())
+        
+        # 等待窗口关闭
+        password_window.wait_window()
+        
+        return verify_result["success"]
     
     def minimize_to_tray(self):
         """最小化到系统托盘"""
@@ -475,7 +547,6 @@ class StudentGUI:
 功能: 系统托盘后台运行
 
 网络信息:
-本机IP地址: {local_ip}
 服务器端口: 8888
 
 系统信息:
@@ -490,14 +561,36 @@ Python版本: 3.x
     def quit_application(self, icon=None, item=None):
         """退出应用程序"""
         try:
-            # 询问用户是否确认退出
-            if not messagebox.askyesno("确认退出", "确定要退出作业查看器吗？"):
-                return
+            # 在主线程中验证密码，避免线程阻塞
+            self.root.after(0, self._verify_and_quit)
+        except Exception as e:
+            print(f"退出应用程序时出错: {e}")
+    
+    def _verify_and_quit(self):
+        """在主线程中验证密码并退出"""
+        try:
+            # 确保主窗口是可见的，以便密码验证窗口能正常显示
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
             
-            # 停止系统托盘图标
+            # 临时停止托盘图标，避免UI冲突
+            tray_was_running = False
             if self.tray_icon:
-                self.tray_icon.stop()
+                tray_was_running = True
+                try:
+                    self.tray_icon.stop()
+                except:
+                    pass
                 self.tray_icon = None
+            
+            # 验证退出密码
+            if not self.verify_exit_password():
+                # 密码错误，恢复托盘图标
+                if tray_was_running:
+                    self.root.after(500, self.create_tray_icon)
+                    self.root.after(600, lambda: self.root.withdraw())
+                return
             
             # 停止服务器
             if self.is_server_running:
@@ -508,6 +601,10 @@ Python版本: 3.x
             self.root.destroy()
         except Exception as e:
             print(f"退出应用程序时出错: {e}")
+            # 错误时也要恢复托盘图标
+            if tray_was_running:
+                self.root.after(500, self.create_tray_icon)
+                self.root.after(600, lambda: self.root.withdraw())
     
     def on_teacher_connected(self, event_type, data):
         """老师连接事件"""
