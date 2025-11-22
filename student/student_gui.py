@@ -1,6 +1,6 @@
 """
 学生端主程序
-提供作业查看功能，可以作为服务器被老师连接
+提供作业查看功能，可以作为服务器被老师连接 405 密码 xj123456
 """
 
 import tkinter as tk
@@ -14,6 +14,15 @@ from communication import StudentServer, TeacherClient, MessageTypes, MessageStr
 from data_manager import DataManager
 import socket
 import subprocess
+
+# 导入单实例检测相关模块
+try:
+    import win32event
+    import win32api
+    from winerror import ERROR_ALREADY_EXISTS
+    HAS_WIN32 = True
+except ImportError:
+    HAS_WIN32 = False
 
 class StudentGUI:
     def __init__(self):
@@ -402,7 +411,7 @@ class StudentGUI:
         def check_password():
             """检查密码"""
             password = password_var.get()
-            if password == "admin":
+            if password == "xj123456":
                 verify_result["success"] = True
                 password_window.destroy()
             else:
@@ -634,6 +643,52 @@ Python版本: 3.x
         """运行程序"""
         self.root.mainloop()
 
+def ensure_single_instance():
+    """确保程序只有一个实例在运行
+    
+    Returns:
+        bool: 如果是第一个实例返回True，否则返回False
+    """
+    if HAS_WIN32:
+        # 创建一个命名互斥锁
+        mutex_name = "HomeworkViewerStudentMutex"
+        try:
+            # 尝试创建互斥锁，如果已存在则会抛出ERROR_ALREADY_EXISTS错误
+            mutex = win32event.CreateMutex(None, True, mutex_name)
+            last_error = win32api.GetLastError()
+            
+            if last_error == ERROR_ALREADY_EXISTS:
+                # 程序已经在运行
+                return False
+            # 首次运行，返回True
+            return True
+        except Exception as e:
+            print(f"单实例检测失败: {e}")
+            # 出错时允许程序继续运行
+            return True
+    else:
+        # 非Windows系统或缺少win32库，尝试使用文件锁方式
+        lock_file = os.path.join(os.path.expanduser("~"), ".homework_viewer_student.lock")
+        try:
+            # 尝试以排他模式打开文件
+            with open(lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            # 设置程序退出时删除锁文件
+            import atexit
+            atexit.register(lambda: os.remove(lock_file) if os.path.exists(lock_file) else None)
+            return True
+        except IOError:
+            # 文件已被锁定，程序可能已在运行
+            return False
+
 if __name__ == "__main__":
+    # 确保只有一个实例在运行
+    if not ensure_single_instance():
+        root = tk.Tk()
+        root.withdraw()  # 隐藏主窗口
+        messagebox.showinfo("提示", "程序已经在运行中！")
+        root.destroy()
+        exit(0)
+    
     app = StudentGUI()
     app.run()
