@@ -1,5 +1,42 @@
 {
-  "homeworks": [],
+  "homeworks": [
+    {
+      "id": 1,
+      "subject": "语文",
+      "content": "啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊",
+      "class": "3班",
+      "teacher": "老师",
+      "timestamp": "2025-11-23 13:52:55",
+      "status": "active"
+    },
+    {
+      "id": 2,
+      "subject": "语文",
+      "content": "啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊",
+      "class": "3班",
+      "teacher": "老师",
+      "timestamp": "2025-11-23 13:53:02",
+      "status": "active"
+    },
+    {
+      "id": 3,
+      "subject": "语文",
+      "content": "啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊",
+      "class": "3班",
+      "teacher": "老师",
+      "timestamp": "2025-11-23 13:53:02",
+      "status": "active"
+    },
+    {
+      "id": 4,
+      "subject": "语文",
+      "content": "啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊啊",
+      "class": "3班",
+      "teacher": "老师",
+      "timestamp": "2025-11-23 13:53:02",
+      "status": "active"
+    }
+  ],
   "messages": [],
   "classes": [
     "1班",

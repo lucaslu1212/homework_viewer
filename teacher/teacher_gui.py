@@ -213,27 +213,17 @@ class TeacherGUI:
     
     def init_data(self):
         """初始化数据"""
-        # 初始化1-8班
-        default_classes = [
-            "一年级1班", "一年级2班", "一年级3班", "一年级4班", "一年级5班", "一年级6班", "一年级7班", "一年级8班",
-            "二年级1班", "二年级2班", "二年级3班", "二年级4班", "二年级5班", "二年级6班", "二年级7班", "二年级8班"
-        ]
-        for class_name in default_classes:
-            self.data_manager.add_class(class_name)
-        
         # 加载学科列表
         subjects = self.data_manager.get_subjects()
         self.subject_combo['values'] = subjects
         
-        # 加载班级列表
-        classes = self.data_manager.get_classes()
-        self.class_combo['values'] = classes
+        # 先清空班级列表，等待从学生端获取
+        self.class_combo['values'] = []
+        self.class_combo.set("")
         
-        # 设置默认值
+        # 设置默认学科
         if subjects:
             self.subject_combo.set(subjects[0])
-        if classes:
-            self.class_combo.set(classes[0])
         
         # 加载作业列表
         self.load_homework_list()
@@ -301,9 +291,25 @@ class TeacherGUI:
                 'timestamp': '刚刚'
             })
         
+        def handle_class_list_response(data):
+            """处理班级列表响应"""
+            try:
+                classes = data.get('classes', [])
+                if classes:
+                    print(f"收到班级列表: {classes}")
+                    # 更新班级下拉框
+                    self.class_combo['values'] = classes
+                    # 设置默认选中第一个班级
+                    self.class_combo.set(classes[0])
+                    # 加载作业列表
+                    self.load_homework_list()
+            except Exception as e:
+                print(f"处理班级列表响应失败: {e}")
+        
         # 注册处理器
         self.comm.register_handler(MessageTypes.HOMEWORK_RESPONSE, handle_homework_response)
         self.comm.register_handler(MessageTypes.MESSAGE_RESPONSE, handle_message_response)
+        self.comm.register_handler(MessageTypes.CLASS_LIST_RESPONSE, handle_class_list_response)
     
     def connect_to_server(self):
         """连接到学生服务器"""
@@ -476,6 +482,10 @@ class TeacherGUI:
         self.status_label.config(text="已连接服务器", foreground="green")
         self.connect_btn.config(state="disabled")
         self.disconnect_btn.config(state="normal")
+        
+        # 请求班级列表
+        self.request_class_list()
+        
         messagebox.showinfo("成功", "连接服务器成功！")
     
     def on_connect_failed(self):
@@ -828,6 +838,16 @@ class TeacherGUI:
         self.fullscreen_var.set(False)
         
         print("已退出全屏模式")
+    
+    def request_class_list(self):
+        """请求班级列表"""
+        try:
+            from communication import MessageStructure
+            message = MessageStructure.class_list_request()
+            self.comm._send_message(message)
+            print("已发送班级列表请求")
+        except Exception as e:
+            print(f"发送班级列表请求失败: {e}")
     
     def refresh_fullscreen_list(self):
         """刷新全屏模式下的作业列表"""

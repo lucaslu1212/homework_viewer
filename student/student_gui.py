@@ -127,6 +127,9 @@ class StudentGUI:
         
         ttk.Button(control_frame, text="刷新作业", command=self.refresh_homeworks).grid(row=0, column=4, padx=(10, 0))
         
+        # 添加全屏按钮
+        ttk.Button(control_frame, text="全屏显示", command=self.toggle_fullscreen).grid(row=0, column=5, padx=(10, 0))
+        
         # 作业列表框架
         homework_frame = ttk.LabelFrame(main_frame, text="作业列表", padding="10")
         homework_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
@@ -152,15 +155,33 @@ class StudentGUI:
         # 配置主框架行权重
         main_frame.rowconfigure(3, weight=2)
         
+        # 绑定窗口大小变化事件，实现自动调整字体
+        self.root.bind("<Configure>", self.on_window_resize)
+        
         # 初始化数据
         self.init_data()
+        
+        # 初始化字体大小设置
+        self.default_font_size = 10
+        self.current_font_size = self.default_font_size
+        
+        # 初始化全屏状态
+        self.fullscreen = False
+        
+        # 创建全屏模式下的退出按钮
+        self.fullscreen_exit_button = ttk.Button(self.root, text="退出全屏", command=self.exit_fullscreen,
+                                              style="Accent.TButton")
+        # 初始状态下隐藏
+        self.fullscreen_exit_button.grid_remove()
+        
+        # 添加ESC键退出全屏
+        self.root.bind("<Escape>", lambda e: self.exit_fullscreen() if self.fullscreen else None)
     
     def init_data(self):
         """初始化数据"""
-        # 添加默认班级
+        # 添加默认班级 - 仅包含701-710班级
         default_classes = [
-            "一年级1班", "一年级2班", "一年级3班", "一年级4班", "一年级5班", "一年级6班", "一年级7班", "一年级8班",
-            "二年级1班", "二年级2班", "二年级3班", "二年级4班", "二年级5班", "二年级6班", "二年级7班", "二年级8班"
+            "701", "702", "703", "704", "705", "706", "707", "708", "709", "710"
         ]
         for class_name in default_classes:
             self.data_manager.add_class(class_name)
@@ -238,6 +259,7 @@ class StudentGUI:
         
         # 注册处理器
         self.server.register_handler(MessageTypes.HOMEWORK_REQUEST, handle_homework_request)
+        self.server.register_handler(MessageTypes.CLASS_LIST_REQUEST, self.handle_class_list_request)
         
         # 添加事件监听器
         self.server.add_listener('teacher_connected', self.on_teacher_connected)
@@ -290,6 +312,9 @@ class StudentGUI:
         
         # 在老师列表中显示
         self.root.after(0, self.add_teacher_to_list, teacher_id, teacher_name)
+        
+        # 发送班级列表给新连接的老师
+        self.send_class_list_to_teacher(teacher_id)
     
     def on_teacher_disconnected(self, event_type, data):
         """老师断开连接事件"""
@@ -318,6 +343,18 @@ class StudentGUI:
         message = MessageStructure.homework_response(homework_data)
         self.server.send_to_teacher(teacher_id, message)
     
+    def handle_class_list_request(self, message, client_socket, teacher_id):
+        """处理班级列表请求"""
+        self.send_class_list_to_teacher(teacher_id)
+    
+    def send_class_list_to_teacher(self, teacher_id):
+        """发送班级列表给指定老师"""
+        # 获取班级列表
+        classes = self.data_manager.get_classes()
+        # 发送班级列表响应
+        message = MessageStructure.class_list_response(classes)
+        self.server.send_to_teacher(teacher_id, message)
+    
 
     
     def on_class_selected(self, event=None):
@@ -335,6 +372,85 @@ class StudentGUI:
         # 本地加载
         self.load_local_homeworks()
     
+    def calculate_optimal_font_size(self):
+        """计算最佳字体大小，确保作业文字占满空间"""
+        # 获取作业列表区域的宽度
+        if not hasattr(self.homework_tree, 'winfo_width'):
+            return self.default_font_size
+            
+        tree_width = self.homework_tree.winfo_width()
+        if tree_width <= 0:
+            return self.default_font_size
+            
+        # 获取内容列的宽度（假设是第2列）
+        content_col_width = tree_width * 0.6  # 大约60%的宽度给内容列
+        
+        # 基于内容列宽度计算字体大小
+        # 简单公式：字体大小 = 内容列宽度 / 20
+        # 最小10px，最大24px
+        font_size = int(content_col_width / 20)
+        font_size = max(10, min(24, font_size))
+        
+        return font_size
+    
+    def on_window_resize(self, event=None):
+        """窗口大小变化时自动调整字体大小"""
+        # 避免频繁计算，只在窗口大小真正变化时调整
+        if hasattr(event, 'width') and hasattr(self, '_last_width') and event.width == self._last_width:
+            return
+        
+        if hasattr(event, 'width'):
+            self._last_width = event.width
+            
+        # 计算最佳字体大小
+        new_font_size = self.calculate_optimal_font_size()
+        
+        # 如果字体大小发生变化，更新字体并刷新作业列表
+        if new_font_size != self.current_font_size:
+            self.current_font_size = new_font_size
+            self.refresh_homeworks()
+    
+    def toggle_fullscreen(self):
+        """切换全屏/普通模式"""
+        if not self.fullscreen:
+            self.enter_fullscreen()
+        else:
+            self.exit_fullscreen()
+    
+    def enter_fullscreen(self):
+        """进入全屏模式"""
+        # 保存当前窗口状态
+        self.normal_window_state = self.root.state()
+        self.normal_window_geometry = self.root.geometry()
+        
+        # 进入全屏模式
+        self.root.attributes('-fullscreen', True)
+        self.fullscreen = True
+        
+        # 显示退出全屏按钮，放置在右上角
+        self.fullscreen_exit_button.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=10)
+        
+        # 调整UI以适应全屏
+        self.on_window_resize()
+    
+    def exit_fullscreen(self):
+        """退出全屏模式"""
+        # 恢复普通模式
+        self.root.attributes('-fullscreen', False)
+        self.fullscreen = False
+        
+        # 恢复窗口状态
+        if hasattr(self, 'normal_window_state') and self.normal_window_state:
+            self.root.state(self.normal_window_state)
+        if hasattr(self, 'normal_window_geometry') and self.normal_window_geometry:
+            self.root.geometry(self.normal_window_geometry)
+        
+        # 隐藏退出全屏按钮
+        self.fullscreen_exit_button.place_forget()
+        
+        # 调整UI以适应普通窗口
+        self.on_window_resize()
+    
     def load_local_homeworks(self):
         """从本地加载作业"""
         homeworks = self.data_manager.get_homeworks(
@@ -346,12 +462,25 @@ class StudentGUI:
         for item in self.homework_tree.get_children():
             self.homework_tree.delete(item)
         
-        # 添加作业
+        # 确保字体大小已计算
+        if not hasattr(self, 'current_font_size'):
+            self.current_font_size = self.calculate_optimal_font_size()
+        
+        # 设置字体
+        style = ttk.Style()
+        style.configure("Homework.Treeview", font=("微软雅黑", self.current_font_size))
+        self.homework_tree.configure(style="Homework.Treeview")
+        
+        # 添加作业 - 只显示"科目：作业"格式
         for homework in homeworks:
+            subject = homework.get("subject", "")
+            content = homework.get("content", "")
+            # 组合成"科目：作业"格式
+            display_text = f"{subject}：{content}"
             values = (
                 homework.get("id", ""),
-                homework.get("subject", ""),
-                homework.get("content", ""),
+                subject,  # 保留原学科列用于筛选
+                display_text,
                 homework.get("teacher", ""),
                 homework.get("timestamp", "")
             )
@@ -556,11 +685,10 @@ class StudentGUI:
 功能: 系统托盘后台运行
 
 网络信息:
-服务器端口: 8888
+默认服务器端口: 8888
 
 系统信息:
 操作系统: Windows
-Python版本: 3.x
 
 作者: 0510卢文睿
 开发时间: 2025年"""
@@ -623,6 +751,9 @@ Python版本: 3.x
         
         # 在老师列表中显示
         self.root.after(0, self.add_teacher_to_list, teacher_id, teacher_name)
+        
+        # 发送班级列表给新连接的老师
+        self.send_class_list_to_teacher(teacher_id)
         
         # 如果在系统托盘运行，显示通知
         if self.is_minimized_to_tray:

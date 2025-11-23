@@ -284,6 +284,10 @@ class MessageTypes:
     SUBJECT_SELECTION = "subject_selection"   # 老师选择学科
     TEACHER_STATUS = "teacher_status"         # 老师状态更新
     
+    # 班级相关
+    CLASS_LIST_REQUEST = "class_list_request" # 请求班级列表
+    CLASS_LIST_RESPONSE = "class_list_response" # 班级列表响应
+    
     # 系统相关
     HEARTBEAT = "heartbeat"                   # 心跳包
     SYSTEM_INFO = "system_info"               # 系统信息
@@ -341,5 +345,22 @@ class MessageStructure:
             'content': content,
             'sender_name': sender_name,
             'class': class_name,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    @staticmethod
+    def class_list_request():
+        """班级列表请求消息"""
+        return {
+            'type': MessageTypes.CLASS_LIST_REQUEST,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    @staticmethod
+    def class_list_response(classes):
+        """班级列表响应消息"""
+        return {
+            'type': MessageTypes.CLASS_LIST_RESPONSE,
+            'classes': classes,
             'timestamp': datetime.now().isoformat()
         }
