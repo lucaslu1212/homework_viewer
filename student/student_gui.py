@@ -31,6 +31,21 @@ class StudentGUI:
         self.root.geometry("900x650")
         self.root.resizable(True, True)
         
+        # 设置主窗口图标
+        try:
+            icon_path = "C:\\Users\\Lucas\\Desktop\\fan\\homework_viewer\\student.png"
+            if os.path.exists(icon_path):
+                # 先尝试使用iconphoto设置图标（支持PNG）
+                from PIL import ImageTk
+                icon_image = ImageTk.PhotoImage(Image.open(icon_path))
+                self.root.iconphoto(True, icon_image)
+                self.window_icon = icon_image  # 保持引用以防止被垃圾回收
+                print(f"成功设置主窗口图标: {icon_path}")
+            else:
+                print(f"警告: 找不到图标文件 {icon_path}")
+        except Exception as e:
+            print(f"设置主窗口图标失败: {e}")
+        
         # 初始化组件
         self.server = StudentServer()  # 学生端服务器
         self.data_manager = DataManager("student_data.json")
@@ -598,13 +613,12 @@ class StudentGUI:
     def create_tray_icon(self):
         """创建系统托盘图标"""
         try:
-            # 获取当前脚本所在目录的父目录（homework_viewer目录）
-            script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            image_path = os.path.join(script_dir, "student.png")
+            # 使用用户指定的图标文件路径
+            image_path = "C:\\Users\\Lucas\\Desktop\\fan\\homework_viewer\\student.png"
             
             # 检查图片文件是否存在
             if os.path.exists(image_path):
-                # 使用 student.png 作为托盘图标
+                # 使用指定的图标文件作为托盘图标
                 image = Image.open(image_path)
             else:
                 # 如果图片不存在，创建默认图标
