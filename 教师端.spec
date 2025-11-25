@@ -4,11 +4,11 @@ block_cipher = None
 
 a = Analysis(
     ['teacher/teacher_gui.py'],
-    pathex=[],
+    pathex=['C:\\Users\\Lucas\\Desktop\\fan\\homework_viewer'],  # 添加脚本所在目录到pathex
     binaries=[],
     datas=[
         ('demo_data.json', '.'),
-        ('teacher', 'teacher'),
+        ('teacher/teacher_data.json', 'teacher'),
     ],
     hiddenimports=[
         'tkinter',
@@ -27,7 +27,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['pdb', 'doctest', 'unittest', 'difflib', 'trace', '__pycache__', '*.pyc', '*.pyo'],  # 移除inspect，因为它是必需的
+    optimize=2,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -47,7 +48,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

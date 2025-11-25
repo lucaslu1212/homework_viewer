@@ -11,15 +11,20 @@ import socket
 
 # 使用新架构的通信模块
 # from communication import StudentServer, TeacherClient
-# 消息类型常量
-class MessageTypes:
-    HOMEWORK_REQUEST = "homework_request"
-    HOMEWORK_RESPONSE = "homework_response"
-    HOMEWORK_SEND = "homework_send"
-    MESSAGE_SEND = "message_send"
-    MESSAGE_RESPONSE = "message_response"
-    MESSAGE_RECEIVE = "message_receive"
-    CLASS_SELECTION = "class_selection"
+# 从communication模块导入消息类型常量
+try:
+    from communication import MessageTypes
+except ModuleNotFoundError:
+    # 最小桩实现，避免程序无法启动
+    class MessageTypes:
+        HOMEWORK_REQUEST = "homework_request"
+        HOMEWORK_RESPONSE = "homework_response"
+        HOMEWORK_SEND = "homework_send"
+        MESSAGE_SEND = "message_send"
+        MESSAGE_RESPONSE = "message_response"
+        MESSAGE_RECEIVE = "message_receive"
+        CLASS_SELECTION = "class_selection"
+        CLASS_LIST_RESPONSE = "class_list_response"  # 添加缺失的属性
 
 try:
     from data_manager import DataManager

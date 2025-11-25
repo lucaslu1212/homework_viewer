@@ -31,7 +31,8 @@ class DataManager:
             "messages": [],       # 留言列表
             "classes": [],        # 班级列表
             "subjects": ["语文", "数学", "英语", "物理", "化学", "生物", "历史", "地理", "政治"],  # 学科列表
-            "class_assignments": {}  # 班级对应关系
+            "class_assignments": {},  # 班级对应关系
+            "password": "xj123456"  # 默认密码
         }
     
     def save_data(self):
@@ -167,8 +168,41 @@ class DataManager:
     
     def clear_all_data(self):
         """清空所有数据"""
+        # 保留密码设置
+        current_password = self.get_password()
         self.data = self._get_default_data()
+        self.set_password(current_password)
         self.save_data()
+    
+    def get_password(self):
+        """获取当前密码"""
+        return self.data.get("password", "xj123456")
+    
+    def set_password(self, new_password):
+        """设置新密码
+        
+        Args:
+            new_password: 新密码字符串
+        
+        Returns:
+            bool: 设置是否成功
+        """
+        if not new_password or len(new_password.strip()) == 0:
+            return False
+        
+        self.data["password"] = new_password
+        return self.save_data()
+    
+    def verify_password(self, password_to_check):
+        """验证密码是否正确
+        
+        Args:
+            password_to_check: 待验证的密码
+        
+        Returns:
+            bool: 密码是否正确
+        """
+        return password_to_check == self.get_password()
     
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""

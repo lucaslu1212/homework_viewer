@@ -145,6 +145,9 @@ class StudentGUI:
         # 添加全屏按钮
         ttk.Button(control_frame, text="全屏显示", command=self.toggle_fullscreen).grid(row=0, column=5, padx=(10, 0))
         
+        # 添加高级选项按钮
+        ttk.Button(control_frame, text="高级选项", command=self.show_advanced_options).grid(row=0, column=6, padx=(10, 0))
+        
         # 作业列表框架
         homework_frame = ttk.LabelFrame(main_frame, text="作业列表", padding="10")
         homework_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
@@ -555,7 +558,7 @@ class StudentGUI:
         def check_password():
             """检查密码"""
             password = password_var.get()
-            if password == "xj123456":
+            if self.data_manager.verify_password(password):
                 verify_result["success"] = True
                 password_window.destroy()
             else:
@@ -580,6 +583,192 @@ class StudentGUI:
         password_window.wait_window()
         
         return verify_result["success"]
+    
+    def show_advanced_options(self):
+        """显示高级选项对话框"""
+        # 先验证当前密码
+        if not self.verify_current_password():
+            return
+        
+        # 创建高级选项窗口
+        options_window = tk.Toplevel(self.root)
+        options_window.title("高级选项")
+        options_window.geometry("400x300")
+        options_window.resizable(False, False)
+        
+        # 居中显示
+        options_window.transient(self.root)
+        options_window.grab_set()
+        options_window.geometry("+%d+%d" % (
+            self.root.winfo_rootx() + 50,
+            self.root.winfo_rooty() + 50
+        ))
+        
+        # 设置窗口内边距
+        main_frame = ttk.Frame(options_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 修改密码按钮
+        ttk.Button(main_frame, text="修改密码", command=self.change_password_dialog, width=20).pack(pady=(20, 20))
+        
+        # 清空所有数据按钮
+        ttk.Button(main_frame, text="清空所有数据（谨慎操作）", command=self.confirm_clear_data, width=25).pack(pady=(10, 10))
+        
+        # 关闭按钮
+        ttk.Button(main_frame, text="关闭", command=options_window.destroy, width=15).pack(pady=(30, 10))
+    
+    def verify_current_password(self):
+        """验证当前密码"""
+        password_window = tk.Toplevel(self.root)
+        password_window.title("密码验证")
+        password_window.geometry("350x200")
+        password_window.resizable(False, False)
+        
+        # 居中显示
+        password_window.transient(self.root)
+        password_window.grab_set()
+        
+        # 提示标签
+        ttk.Label(password_window, text="高级选项密码验证", font=("Arial", 12, "bold")).pack(pady=(20, 10))
+        ttk.Label(password_window, text="请输入当前密码：", font=("Arial", 10)).pack(pady=(0, 5))
+        
+        # 密码输入框
+        password_var = tk.StringVar()
+        password_entry = ttk.Entry(password_window, textvariable=password_var, show="*", width=20, font=("Arial", 10))
+        password_entry.pack(pady=(0, 20))
+        password_entry.focus()
+        
+        # 验证结果标签
+        result_label = ttk.Label(password_window, text="", foreground="red", font=("Arial", 9))
+        result_label.pack()
+        
+        # 按钮框架
+        button_frame = ttk.Frame(password_window)
+        button_frame.pack(pady=(0, 20))
+        
+        # 验证结果变量
+        verify_result = {"success": False}
+        
+        def check_password():
+            """检查密码"""
+            password = password_var.get()
+            if self.data_manager.verify_password(password):
+                verify_result["success"] = True
+                password_window.destroy()
+            else:
+                result_label.config(text="密码错误，请重新输入")
+                password_var.set("")
+                password_entry.focus()
+        
+        def cancel():
+            """取消"""
+            verify_result["success"] = False
+            password_window.destroy()
+        
+        # 按钮
+        ttk.Button(button_frame, text="确定", command=check_password, width=10).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="取消", command=cancel, width=10).pack(side=tk.LEFT)
+        
+        # 绑定回车键
+        password_entry.bind('<Return>', lambda event: check_password())
+        password_entry.bind('<Escape>', lambda event: cancel())
+        
+        # 等待窗口关闭
+        password_window.wait_window()
+        
+        return verify_result["success"]
+    
+    def change_password_dialog(self):
+        """修改密码对话框"""
+        # 创建修改密码窗口
+        change_window = tk.Toplevel(self.root)
+        change_window.title("修改密码")
+        change_window.geometry("400x280")
+        change_window.resizable(False, False)
+        
+        # 居中显示
+        change_window.transient(self.root)
+        change_window.grab_set()
+        
+        # 设置窗口内边距
+        main_frame = ttk.Frame(change_window, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 当前密码
+        ttk.Label(main_frame, text="当前密码：", font=("Arial", 10)).grid(row=0, column=0, sticky=tk.W, pady=(10, 5))
+        current_password_var = tk.StringVar()
+        current_password_entry = ttk.Entry(main_frame, textvariable=current_password_var, show="*", width=25, font=("Arial", 10))
+        current_password_entry.grid(row=0, column=1, pady=(10, 5))
+        
+        # 新密码
+        ttk.Label(main_frame, text="新密码：", font=("Arial", 10)).grid(row=1, column=0, sticky=tk.W, pady=(10, 5))
+        new_password_var = tk.StringVar()
+        new_password_entry = ttk.Entry(main_frame, textvariable=new_password_var, show="*", width=25, font=("Arial", 10))
+        new_password_entry.grid(row=1, column=1, pady=(10, 5))
+        
+        # 确认新密码
+        ttk.Label(main_frame, text="确认新密码：", font=("Arial", 10)).grid(row=2, column=0, sticky=tk.W, pady=(10, 5))
+        confirm_password_var = tk.StringVar()
+        confirm_password_entry = ttk.Entry(main_frame, textvariable=confirm_password_var, show="*", width=25, font=("Arial", 10))
+        confirm_password_entry.grid(row=2, column=1, pady=(10, 5))
+        
+        # 提示标签
+        tip_label = ttk.Label(main_frame, text="密码修改成功后，重启应用生效", foreground="blue", font=("Arial", 9))
+        tip_label.grid(row=3, column=0, columnspan=2, pady=(5, 10))
+        
+        # 错误信息标签
+        error_label = ttk.Label(main_frame, text="", foreground="red", font=("Arial", 9))
+        error_label.grid(row=4, column=0, columnspan=2, pady=(5, 10))
+        
+        def validate_and_change_password():
+            """验证并修改密码"""
+            current_password = current_password_var.get()
+            new_password = new_password_var.get()
+            confirm_password = confirm_password_var.get()
+            
+            # 验证当前密码
+            if not self.data_manager.verify_password(current_password):
+                error_label.config(text="当前密码错误")
+                return
+            
+            # 验证新密码长度
+            if len(new_password) < 6:
+                error_label.config(text="新密码长度至少为6位")
+                return
+            
+            # 验证两次输入是否一致
+            if new_password != confirm_password:
+                error_label.config(text="两次输入的新密码不一致")
+                return
+            
+            # 修改密码
+            if self.data_manager.set_password(new_password):
+                messagebox.showinfo("成功", "密码修改成功，请重启应用以生效")
+                change_window.destroy()
+            else:
+                error_label.config(text="密码修改失败")
+        
+        # 按钮框架
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=5, column=0, columnspan=2, pady=(10, 0))
+        
+        # 按钮
+        ttk.Button(button_frame, text="确定", command=validate_and_change_password, width=10).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(button_frame, text="取消", command=change_window.destroy, width=10).pack(side=tk.LEFT)
+        
+        # 绑定回车键
+        confirm_password_entry.bind('<Return>', lambda event: validate_and_change_password())
+        change_window.bind('<Escape>', lambda event: change_window.destroy())
+    
+    def confirm_clear_data(self):
+        """确认清空数据"""
+        if messagebox.askyesno("确认", "确定要清空所有数据吗？此操作不可恢复！"):
+            # 再次验证密码
+            if self.verify_current_password():
+                self.data_manager.clear_all_data()
+                messagebox.showinfo("成功", "所有数据已清空")
+                # 刷新作业列表
+                self.refresh_homeworks()
     
     def minimize_to_tray(self):
         """最小化到系统托盘"""

@@ -1,18 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-# 加密模块，当前未启用
 block_cipher = None
 
-# 分析阶段：收集脚本、依赖、数据文件等
 a = Analysis(
-    ['student/student_gui.py'],   # 主入口脚本
-    pathex=[],                    # 额外模块搜索路径
-    binaries=[],                  # 需要打包的二进制文件
+    ['student/student_gui.py'],
+    pathex=['C:\\Users\\Lucas\\Desktop\\fan\\homework_viewer'],  # 添加脚本所在目录到pathex
+    binaries=[],
     datas=[
-        ('demo_data.json', '.'),  # 将 demo_data.json 打包到根目录
-        ('student', 'student'),   # 将 student 文件夹整体打包到 student 目录
+        ('demo_data.json', '.'),
+        ('student_data.json', '.'),
     ],
-    hiddenimports=[               # 显式声明的隐式导入模块
+    hiddenimports=[
         'tkinter',
         'tkinter.ttk',
         'tkinter.messagebox',
@@ -26,43 +24,61 @@ a = Analysis(
         'data_manager',
         'student.student_gui',
         'pystray',
+        'pystray._win32',  # 添加pystray的Windows实现
+        'pystray._win32.lib',  # 添加pystray Windows库
+        'pystray._win32.constants',  # 添加pystray Windows常量
         'PIL',
         'PIL.Image',
+        'PIL.ImageTk',
+        'PIL._imagingtk',  # 添加PIL的Tkinter支持
+        'PIL._tkinter_finder',
         'os',
+        'sys',
+        'time',
+        'inspect',  # 确保inspect模块被包含
+        # 添加win32相关模块支持单实例检测
+        'win32event',
+        'win32api',
+        'winerror',
+        'traceback',
+        'ctypes',
+        'ctypes.wintypes',
+        'win32gui',  # 添加更多win32相关模块
+        'win32con',
+        'win32process'
     ],
-    hookspath=[],        # 自定义 hook 路径
-    hooksconfig={},      # hook 配置
-    runtime_hooks=[],    # 运行时 hook
-    excludes=[],         # 排除的模块
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=['pdb', 'doctest', 'unittest', 'difflib', 'trace', '__pycache__', '*.pyc', '*.pyo'],  # 移除inspect，因为它是必需的
+    optimize=2,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,     # 不关闭归档，减少体积
+    noarchive=False,
 )
 
-# 生成 PYZ 归档：将纯 Python 模块压缩
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# 生成最终可执行文件
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.zipfiles,
     a.datas,
-    [],                            # 额外依赖项
-    name='学生端-作业查看器',       # 生成的 exe 文件名
-    debug=False,                   # 关闭调试模式
+    [],
+    name='学生端-作业查看器',
+    debug=False,
     bootloader_ignore_signals=False,
-    strip=False,                   # 不剥离符号
-    upx=True,                      # 使用 UPX 压缩
-    upx_exclude=[],                # 不被 UPX 压缩的文件
-    runtime_tmpdir=None,           # 运行时临时目录
-    console=False,                 # 不显示控制台窗口（GUI 模式）
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,              # 目标架构，默认当前
-    codesign_identity=None,        # 代码签名身份（macOS）
-    entitlements_file=None,        # 权限文件（macOS）
-    icon='student.png',            # 应用图标
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='student.png',
 )

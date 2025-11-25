@@ -10,20 +10,32 @@ import sys
 import shutil
 import subprocess
 from pathlib import Path
+import stat
+import time  # 添加time模块用于在删除操作后添加延迟
 
 def create_teacher_spec():
     """创建教师端PyInstaller spec文件"""
-    spec_content = '''# -*- mode: python ; coding: utf-8 -*-
+    # 获取脚本所在目录，确保使用绝对路径
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 使用正斜杠或双反斜杠来避免Unicode转义错误
+    script_dir_escaped = script_dir.replace('\\', '\\\\')
+    teacher_gui_path = os.path.join('teacher', 'teacher_gui.py').replace('\\', '/')
+    demo_data_path = 'demo_data.json'
+    teacher_data_path = os.path.join('teacher', 'teacher_data.json').replace('\\', '/')
+    
+    # 在spec文件中直接配置upx=False，而不是通过命令行参数
+    spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
 
 a = Analysis(
-    ['teacher/teacher_gui.py'],
-    pathex=[],
+    ['{teacher_gui_path}'],
+    pathex=['{script_dir_escaped}'],  # 添加脚本所在目录到pathex
     binaries=[],
     datas=[
-        ('demo_data.json', '.'),
-        ('teacher', 'teacher'),
+        ('{demo_data_path}', '.'),
+        ('{teacher_data_path}', 'teacher'),
     ],
     hiddenimports=[
         'tkinter',
@@ -40,9 +52,10 @@ a = Analysis(
         'teacher.teacher_gui',
     ],
     hookspath=[],
-    hooksconfig={},
+    hooksconfig={{}},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['pdb', 'doctest', 'unittest', 'difflib', 'trace', '__pycache__', '*.pyc', '*.pyo'],  # 移除inspect，因为它是必需的
+    optimize=2,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -62,7 +75,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -81,17 +94,27 @@ exe = EXE(
 
 def create_student_spec():
     """创建学生端PyInstaller spec文件"""
-    spec_content = '''# -*- mode: python ; coding: utf-8 -*-
+    # 获取脚本所在目录，确保使用绝对路径
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 使用正斜杠或双反斜杠来避免Unicode转义错误
+    script_dir_escaped = script_dir.replace('\\', '\\\\')
+    student_gui_path = os.path.join('student', 'student_gui.py').replace('\\', '/')
+    demo_data_path = 'demo_data.json'
+    student_data_path = 'student_data.json'
+    student_icon_path = 'student.png'  # 图标文件相对路径
+    
+    spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
 
 a = Analysis(
-    ['student/student_gui.py'],
-    pathex=[],
+    ['{student_gui_path}'],
+    pathex=['{script_dir_escaped}'],  # 添加脚本所在目录到pathex
     binaries=[],
     datas=[
-        ('demo_data.json', '.'),
-        ('student', 'student'),
+        ('{demo_data_path}', '.'),
+        ('{student_data_path}', '.'),
     ],
     hiddenimports=[
         'tkinter',
@@ -107,14 +130,34 @@ a = Analysis(
         'data_manager',
         'student.student_gui',
         'pystray',
+        'pystray._win32',  # 添加pystray的Windows实现
+        'pystray._win32.lib',  # 添加pystray Windows库
+        'pystray._win32.constants',  # 添加pystray Windows常量
         'PIL',
         'PIL.Image',
+        'PIL.ImageTk',
+        'PIL._imagingtk',  # 添加PIL的Tkinter支持
+        'PIL._tkinter_finder',
         'os',
+        'sys',
+        'time',
+        'inspect',  # 确保inspect模块被包含
+        # 添加win32相关模块支持单实例检测
+        'win32event',
+        'win32api',
+        'winerror',
+        'traceback',
+        'ctypes',
+        'ctypes.wintypes',
+        'win32gui',  # 添加更多win32相关模块
+        'win32con',
+        'win32process'
     ],
     hookspath=[],
-    hooksconfig={},
+    hooksconfig={{}},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['pdb', 'doctest', 'unittest', 'difflib', 'trace', '__pycache__', '*.pyc', '*.pyo'],  # 移除inspect，因为它是必需的
+    optimize=2,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -134,7 +177,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
@@ -143,7 +186,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon='{student_icon_path}',
 )
 '''
     
@@ -151,80 +194,171 @@ exe = EXE(
         f.write(spec_content)
     print("✓ 创建学生端spec文件成功")
 
+def on_rm_error(func, path, exc_info):
+    """处理删除文件时的权限错误"""
+    # 尝试更改权限并重新执行操作
+    try:
+        if not os.access(path, os.W_OK):
+            os.chmod(path, stat.S_IWUSR)
+            time.sleep(0.1)  # 添加小延迟以确保权限更改生效
+        func(path)
+    except Exception as e:
+        print(f"⚠ 删除文件失败: {path} - {e}")
+        # 尝试直接使用os.remove作为备选方案
+        if os.path.isfile(path):
+            try:
+                os.remove(path)
+                print(f"  备选方法: 成功删除文件 {path}")
+            except:
+                pass
+
 def clean_build_dirs():
     """清理构建目录"""
+    # 获取当前脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     dirs_to_clean = ['build', 'dist', '__pycache__']
+    
     for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
+        # 构建绝对路径
+        dir_path = os.path.join(script_dir, dir_name)
+        if os.path.exists(dir_path):
             try:
-                # 强制删除文件权限
-                for root, dirs, files in os.walk(dir_name):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        try:
-                            os.chmod(file_path, 0o777)  # 强制修改权限
-                        except:
-                            pass
-                
-                shutil.rmtree(dir_name)
+                # 使用错误处理函数确保即使有权限问题也能尝试删除
+                shutil.rmtree(dir_path, onerror=on_rm_error)
                 print(f"✓ 清理目录: {dir_name}")
+                time.sleep(0.3)  # 添加延迟确保文件锁释放
             except PermissionError:
                 print(f"⚠ 无法清理目录: {dir_name} (可能被占用)")
+                # 尝试再次删除
+                time.sleep(0.5)
+                try:
+                    shutil.rmtree(dir_path, onerror=on_rm_error)
+                    print(f"✓ 重试后清理目录: {dir_name}")
+                except:
+                    pass
             except Exception as e:
                 print(f"⚠ 清理目录失败: {dir_name} - {e}")
+    
+    # 最终延迟确保所有目录清理完成
+    time.sleep(0.5)
 
 def build_teacher_exe():
     """构建教师端exe文件"""
     print("开始构建教师端exe文件...")
+    # 获取当前脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    spec_path = os.path.join(script_dir, "教师端.spec")
+    
     try:
+        # 确保在正确的目录下执行
         subprocess.check_call([
             sys.executable, "-m", "PyInstaller",
             "--clean",
-            "教师端.spec"
-        ])
+            spec_path
+        ], cwd=script_dir)  # 指定工作目录
         print("✓ 教师端exe文件构建成功")
         return True
     except subprocess.CalledProcessError as e:
         print(f"✗ 教师端构建失败: {e}")
         return False
+    except FileNotFoundError:
+        print("✗ 未找到PyInstaller模块，请确保已安装")
+        return False
+    except Exception as e:
+        print(f"✗ 构建过程中发生未知错误: {e}")
+        return False
 
 def build_student_exe():
     """构建学生端exe文件"""
     print("开始构建学生端exe文件...")
+    # 获取当前脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 确保先创建或更新spec文件
+    create_student_spec()
+    
+    spec_path = os.path.join(script_dir, "学生端.spec")
+    
     try:
+        # 确保在正确的目录下执行
         subprocess.check_call([
             sys.executable, "-m", "PyInstaller",
             "--clean",
-            "学生端.spec"
-        ])
+            spec_path
+        ], cwd=script_dir)  # 指定工作目录
         print("✓ 学生端exe文件构建成功")
         return True
     except subprocess.CalledProcessError as e:
         print(f"✗ 学生端构建失败: {e}")
+        print("尝试重新创建spec文件并再次构建...")
+        # 重新创建spec文件
+        create_student_spec()
+        try:
+            # 再次尝试构建
+            subprocess.check_call([
+                sys.executable, "-m", "PyInstaller",
+                "--clean",
+                spec_path
+            ], cwd=script_dir)
+            print("✓ 学生端exe文件构建成功")
+            return True
+        except subprocess.CalledProcessError as e2:
+            print(f"✗ 学生端重新构建也失败: {e2}")
+            return False
+    except FileNotFoundError:
+        print("✗ 未找到PyInstaller模块，请确保已安装")
+        return False
+    except Exception as e:
+        print(f"✗ 构建过程中发生未知错误: {e}")
         return False
 
 def create_teacher_portable():
     """创建教师端便携版"""
     print("创建教师端便携版...")
     
-    portable_dir = "教师端_便携版"
-    if os.path.exists(portable_dir):
-        shutil.rmtree(portable_dir)
+    # 获取当前脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    portable_dir = os.path.join(script_dir, "教师端_便携版")
     
-    os.makedirs(portable_dir)
+    # 安全删除旧目录
+    if os.path.exists(portable_dir):
+        try:
+            shutil.rmtree(portable_dir, onerror=on_rm_error)
+            print(f"✓ 已删除旧便携版目录")
+        except Exception as e:
+            print(f"⚠ 删除旧便携版目录失败: {e}")
+    
+    # 确保便携版目录存在，无论之前的删除是否成功
+    try:
+        os.makedirs(portable_dir, exist_ok=True)
+        print(f"✓ 已创建便携版目录: {portable_dir}")
+    except Exception as e:
+        print(f"✗ 无法创建便携版目录: {e}")
+        return
     
     # 复制exe文件
-    exe_source = os.path.join("dist", "教师端-作业查看器.exe")
+    exe_source = os.path.join(script_dir, "dist", "教师端-作业查看器.exe")
+    exe_dest = os.path.join(portable_dir, "教师端-作业查看器.exe")
     if os.path.exists(exe_source):
-        shutil.copy2(exe_source, portable_dir)
-        print(f"✓ 复制教师端exe文件到 {portable_dir}")
+        try:
+            shutil.copy2(exe_source, exe_dest)
+            print(f"✓ 复制教师端exe文件到 {portable_dir}")
+        except Exception as e:
+            print(f"✗ 复制exe文件失败: {e}")
+    else:
+        print(f"✗ 未找到教师端exe文件: {exe_source}")
     
     # 复制必要文件
     files_to_copy = ["demo_data.json", "README.md"]
     for file in files_to_copy:
-        if os.path.exists(file):
-            shutil.copy2(file, portable_dir)
-            print(f"✓ 复制文件: {file}")
+        file_source = os.path.join(script_dir, file)
+        file_dest = os.path.join(portable_dir, file)
+        if os.path.exists(file_source):
+            try:
+                shutil.copy2(file_source, file_dest)
+                print(f"✓ 复制文件: {file}")
+            except Exception as e:
+                print(f"⚠ 复制文件失败: {file} - {e}")
     
     # 创建使用说明
     usage_content = '''教师端-作业查看器 便携版
@@ -260,33 +394,60 @@ def create_teacher_portable():
 版本: 2.0 - 新增全屏作业查看模式
 '''
     
-    with open(os.path.join(portable_dir, "教师端使用说明.txt"), 'w', encoding='utf-8') as f:
-        f.write(usage_content)
-    
-    print("✓ 教师端便携版创建完成")
+    try:
+        with open(os.path.join(portable_dir, "教师端使用说明.txt"), 'w', encoding='utf-8') as f:
+            f.write(usage_content)
+        print("✓ 教师端便携版创建完成")
+    except Exception as e:
+        print(f"✗ 创建使用说明失败: {e}")
 
 def create_student_portable():
     """创建学生端便携版"""
     print("创建学生端便携版...")
     
-    portable_dir = "学生端_便携版"
-    if os.path.exists(portable_dir):
-        shutil.rmtree(portable_dir)
+    # 获取当前脚本所在目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    portable_dir = os.path.join(script_dir, "学生端_便携版")
     
-    os.makedirs(portable_dir)
+    # 安全删除旧目录
+    if os.path.exists(portable_dir):
+        try:
+            shutil.rmtree(portable_dir, onerror=on_rm_error)
+            print(f"✓ 已删除旧便携版目录")
+        except Exception as e:
+            print(f"⚠ 删除旧便携版目录失败: {e}")
+    
+    # 确保便携版目录存在，无论之前的删除是否成功
+    try:
+        os.makedirs(portable_dir, exist_ok=True)
+        print(f"✓ 已创建便携版目录: {portable_dir}")
+    except Exception as e:
+        print(f"✗ 无法创建便携版目录: {e}")
+        return
     
     # 复制exe文件
-    exe_source = os.path.join("dist", "学生端-作业查看器.exe")
+    exe_source = os.path.join(script_dir, "dist", "学生端-作业查看器.exe")
+    exe_dest = os.path.join(portable_dir, "学生端-作业查看器.exe")
     if os.path.exists(exe_source):
-        shutil.copy2(exe_source, portable_dir)
-        print(f"✓ 复制学生端exe文件到 {portable_dir}")
+        try:
+            shutil.copy2(exe_source, exe_dest)
+            print(f"✓ 复制学生端exe文件到 {portable_dir}")
+        except Exception as e:
+            print(f"✗ 复制exe文件失败: {e}")
+    else:
+        print(f"✗ 未找到学生端exe文件: {exe_source}")
     
     # 复制必要文件
     files_to_copy = ["demo_data.json", "README.md"]
     for file in files_to_copy:
-        if os.path.exists(file):
-            shutil.copy2(file, portable_dir)
-            print(f"✓ 复制文件: {file}")
+        file_source = os.path.join(script_dir, file)
+        file_dest = os.path.join(portable_dir, file)
+        if os.path.exists(file_source):
+            try:
+                shutil.copy2(file_source, file_dest)
+                print(f"✓ 复制文件: {file}")
+            except Exception as e:
+                print(f"⚠ 复制文件失败: {file} - {e}")
     
     # 创建使用说明
     usage_content = '''学生端-作业查看器 便携版
@@ -321,10 +482,12 @@ def create_student_portable():
 版本: 2.0 - 新增系统托盘后台运行功能
 '''
     
-    with open(os.path.join(portable_dir, "学生端使用说明.txt"), 'w', encoding='utf-8') as f:
-        f.write(usage_content)
-    
-    print("✓ 学生端便携版创建完成")
+    try:
+        with open(os.path.join(portable_dir, "学生端使用说明.txt"), 'w', encoding='utf-8') as f:
+            f.write(usage_content)
+        print("✓ 学生端便携版创建完成")
+    except Exception as e:
+        print(f"✗ 创建使用说明失败: {e}")
 
 def main():
     """主函数"""
@@ -333,55 +496,79 @@ def main():
     print("=" * 50)
     print()
     
-    # 检查当前目录
-    if not os.path.exists("teacher/teacher_gui.py") or not os.path.exists("student/student_gui.py"):
-        print("错误: 未找到必要的GUI文件")
-        print("请在 homework_viewer 目录下运行此脚本")
-        return
-    
-    # 清理构建目录
-    clean_build_dirs()
-    
-    # 创建spec文件
-    create_teacher_spec()
-    create_student_spec()
-    
-    # 打包教师端
-    print("\n" + "="*30)
-    print("  打包教师端")
-    print("="*30)
-    if not build_teacher_exe():
-        print("教师端打包失败，跳过后续步骤")
-        return
-    
-    # 创建教师端便携版
-    create_teacher_portable()
-    
-    # 清理中间文件
-    clean_build_dirs()
-    
-    # 打包学生端
-    print("\n" + "="*30)
-    print("  打包学生端")
-    print("="*30)
-    if not build_student_exe():
-        print("学生端打包失败")
-        return
-    
-    # 创建学生端便携版
-    create_student_portable()
-    
-    print()
-    print("=" * 50)
-    print("  分离打包完成！")
-    print("=" * 50)
-    print()
-    print("文件位置:")
-    print("- 教师端: dist/教师端-作业查看器.exe")
-    print("- 学生端: dist/学生端-作业查看器.exe")
-    print("- 教师端便携版: 教师端_便携版/")
-    print("- 学生端便携版: 学生端_便携版/")
-    print()
+    try:
+        # 使用Path对象处理路径，提高跨平台兼容性
+        script_path = Path(__file__).resolve()
+        script_dir = script_path.parent
+        
+        # 切换到脚本所在目录，确保相对路径正确
+        original_dir = Path.cwd()
+        os.chdir(str(script_dir))
+        
+        # 检查必要的GUI文件
+        teacher_gui_path = script_dir / "teacher" / "teacher_gui.py"
+        student_gui_path = script_dir / "student" / "student_gui.py"
+        
+        if not teacher_gui_path.exists() or not student_gui_path.exists():
+            print(f"错误: 未找到必要的GUI文件")
+            print(f"当前目录: {Path.cwd()}")
+            print(f"请在 homework_viewer 目录下运行此脚本")
+            return
+        
+        # 清理构建目录
+        clean_build_dirs()
+        
+        # 创建spec文件
+        create_teacher_spec()
+        create_student_spec()
+        
+        # 打包教师端
+        print("\n" + "="*30)
+        print("  打包教师端")
+        print("="*30)
+        if not build_teacher_exe():
+            print("教师端打包失败，跳过后续步骤")
+            return
+        
+        # 创建教师端便携版
+        create_teacher_portable()
+        
+        # 清理中间文件
+        clean_build_dirs()
+        
+        # 打包学生端
+        print("\n" + "="*30)
+        print("  打包学生端")
+        print("="*30)
+        if not build_student_exe():
+            print("学生端打包失败")
+            return
+        
+        # 创建学生端便携版
+        create_student_portable()
+        
+        print()
+        print("=" * 50)
+        print("  分离打包完成！")
+        print("=" * 50)
+        print()
+        print("文件位置:")
+        print(f"- 教师端: {script_dir / 'dist' / '教师端-作业查看器.exe'}")
+        print(f"- 学生端: {script_dir / 'dist' / '学生端-作业查看器.exe'}")
+        print(f"- 教师端便携版: {script_dir / '教师端_便携版'}/")
+        print(f"- 学生端便携版: {script_dir / '学生端_便携版'}/")
+        print()
+        
+    except Exception as e:
+        print(f"✗ 打包过程中发生未处理的错误: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        # 确保恢复原始工作目录
+        try:
+            os.chdir(original_dir)
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
