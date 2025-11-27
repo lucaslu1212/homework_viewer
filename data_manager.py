@@ -5,14 +5,64 @@
 
 import json
 import os
+import shutil
+import hashlib
 from datetime import datetime
 from typing import Dict, List, Any
+import platform
+
+# 尝试导入win32api用于检测U盘（Windows系统）
+try:
+    import win32api
+    import win32file
+    CAN_DETECT_USB = True
+except ImportError:
+    print("未找到win32api模块，U盘检测功能将不可用。请安装pywin32: pip install pywin32")
+    CAN_DETECT_USB = False
 
 class DataManager:
     def __init__(self, data_file="data.json"):
-        self.data_file = data_file
+        # 定义数据文件存储路径 - 修复路径构建
+        self.base_data_dir = os.path.join("C:", os.sep, "Program Files", "xsd")
+        
+        # 确保数据目录存在
+        self._ensure_data_directory_exists()
+        
+        # 构建完整的数据文件路径
+        self.data_file = os.path.join(self.base_data_dir, data_file)
+        
+        # 加载数据
         self.data = self._load_data()
     
+    def _ensure_data_directory_exists(self):
+        """确保数据目录存在，如果不存在则创建
+        
+        处理可能的权限问题：
+        1. 尝试直接创建目录
+        2. 如果失败，尝试创建在用户目录下作为备选
+        """
+        # 首先尝试创建在Program Files下
+        if not os.path.exists(self.base_data_dir):
+            try:
+                # 尝试直接创建目录
+                os.makedirs(self.base_data_dir, exist_ok=True)
+                print(f"成功创建数据目录: {self.base_data_dir}")
+            except PermissionError:
+                # 如果没有管理员权限，尝试在用户目录下创建备选路径
+                print(f"创建目录时权限不足: {self.base_data_dir}")
+                print("尝试在用户目录下创建数据目录...")
+                # 使用用户目录作为备选路径
+                user_dir = os.path.expanduser("~")
+                self.base_data_dir = os.path.join(user_dir, "xsd")
+                try:
+                    os.makedirs(self.base_data_dir, exist_ok=True)
+                    print(f"成功在用户目录创建备选数据目录: {self.base_data_dir}")
+                except Exception as e:
+                    print(f"创建备选数据目录失败: {e}")
+                    # 即使创建失败，程序仍然可以继续运行，但可能会遇到文件操作错误
+                    pass
+            except Exception as e:
+                print(f"创建数据目录时发生未知错误: {e}")
     def _load_data(self):
         """从文件加载数据"""
         if os.path.exists(self.data_file):
@@ -32,7 +82,8 @@ class DataManager:
             "classes": [],        # 班级列表
             "subjects": ["语文", "数学", "英语", "物理", "化学", "生物", "历史", "地理", "政治"],  # 学科列表
             "class_assignments": {},  # 班级对应关系
-            "password": "xj123456"  # 默认密码
+            "password": self._encrypt_password("xiangjiang"),  # 默认密码（已加密）
+            "password_version": "encrypted"  # 标识密码已加密
         }
     
     def save_data(self):
@@ -174,9 +225,29 @@ class DataManager:
         self.set_password(current_password)
         self.save_data()
     
+    def _encrypt_password(self, password):
+        """加密密码
+        
+        Args:
+            password: 明文密码
+            
+        Returns:
+            str: 加密后的密码
+        """
+        return hashlib.sha256(password.encode()).hexdigest()
+    
+    def _is_password_encrypted(self):
+        """检查密码是否已加密
+        
+        Returns:
+            bool: 密码是否已加密
+        """
+        return (self.data.get("password_version") == "encrypted" or 
+               len(self.data.get("password", "")) == 64)  # SHA-256加密后长度为64
+    
     def get_password(self):
         """获取当前密码"""
-        return self.data.get("password", "xj123456")
+        return self.data.get("password", "xiangjiang")
     
     def set_password(self, new_password):
         """设置新密码
@@ -190,7 +261,8 @@ class DataManager:
         if not new_password or len(new_password.strip()) == 0:
             return False
         
-        self.data["password"] = new_password
+        self.data["password"] = self._encrypt_password(new_password)
+        self.data["password_version"] = "encrypted"  # 标记为已加密
         return self.save_data()
     
     def verify_password(self, password_to_check):
@@ -202,7 +274,18 @@ class DataManager:
         Returns:
             bool: 密码是否正确
         """
-        return password_to_check == self.get_password()
+        stored_password = self.get_password()
+        
+        # 如果密码已加密，则对输入的密码进行加密后比较
+        if self._is_password_encrypted():
+            return self._encrypt_password(password_to_check) == stored_password
+        else:
+            # 兼容旧的明文密码（自动升级为加密格式）
+            if password_to_check == stored_password:
+                # 自动将明文密码升级为加密格式
+                self.set_password(password_to_check)
+                return True
+            return False
     
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
@@ -223,3 +306,112 @@ class DataManager:
             "subject_stats": subject_stats,
             "total_homeworks": sum(subject_stats.values())
         }
+    
+    def get_usb_drives(self) -> List[str]:
+        """检测所有连接的U盘驱动器
+        
+        Returns:
+            List[str]: U盘驱动器列表（如 ['D:', 'E:']）
+        """
+        if not CAN_DETECT_USB or platform.system() != 'Windows':
+            print("U盘检测功能在当前环境下不可用")
+            return []
+        
+        try:
+            drives = []
+            # 获取所有驱动器
+            for drive in win32api.GetLogicalDriveStrings().split('\\\\')[:-1]:
+                # 检查是否为可移动驱动器（U盘）
+                try:
+                    drive_type = win32file.GetDriveType(drive + '\\')
+                    if drive_type == win32file.DRIVE_REMOVABLE:
+                        drives.append(drive)
+                except:
+                    continue
+            return drives
+        except Exception as e:
+            print(f"检测U盘时出错: {e}")
+            return []
+    
+    def backup_from_usb(self) -> Dict[str, Any]:
+        """从连接的U盘备份数据到程序的数据目录
+        
+        Returns:
+            Dict[str, Any]: 备份结果信息
+        """
+        result = {
+            "success": False,
+            "message": "",
+            "backed_up_files": [],
+            "usb_drives": []
+        }
+        
+        # 获取所有U盘
+        usb_drives = self.get_usb_drives()
+        result["usb_drives"] = usb_drives
+        
+        if not usb_drives:
+            result["message"] = "未检测到连接的U盘"
+            return result
+        
+        # 要查找的数据文件名
+        data_file_names = ["data.json", "student_data.json", "teacher_data.json", "demo_data.json"]
+        
+        # 记录成功备份的文件
+        backed_up_files = []
+        
+        # 遍历所有U盘
+        for drive in usb_drives:
+            try:
+                # 遍历可能的数据文件名
+                for file_name in data_file_names:
+                    usb_file_path = os.path.join(drive, file_name)
+                    
+                    # 检查文件是否存在
+                    if os.path.exists(usb_file_path):
+                        # 目标文件路径
+                        target_file_path = os.path.join(self.base_data_dir, file_name)
+                        
+                        try:
+                            # 创建备份副本名（带时间戳）
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            backup_file_name = f"{os.path.splitext(file_name)[0]}_{timestamp}.json"
+                            backup_file_path = os.path.join(self.base_data_dir, backup_file_name)
+                            
+                            # 复制文件到目标位置
+                            shutil.copy2(usb_file_path, target_file_path)
+                            # 同时创建带时间戳的备份
+                            shutil.copy2(usb_file_path, backup_file_path)
+                            
+                            backed_up_files.append({
+                                "file": file_name,
+                                "from": usb_file_path,
+                                "to": target_file_path,
+                                "backup": backup_file_path
+                            })
+                            
+                            print(f"成功从U盘 {drive} 备份文件: {file_name} 到 {target_file_path}")
+                            print(f"创建备份副本: {backup_file_path}")
+                            
+                        except Exception as e:
+                            print(f"备份文件 {usb_file_path} 时出错: {e}")
+            except Exception as e:
+                print(f"访问U盘 {drive} 时出错: {e}")
+        
+        if backed_up_files:
+            result["success"] = True
+            result["message"] = f"成功备份 {len(backed_up_files)} 个文件"
+            result["backed_up_files"] = backed_up_files
+        else:
+            result["message"] = "在U盘中未找到可备份的数据文件"
+        
+        return result
+    
+    def check_and_backup_usb(self) -> Dict[str, Any]:
+        """检查U盘并自动备份（可以在程序启动时调用）
+        
+        Returns:
+            Dict[str, Any]: 备份结果信息
+        """
+        print("正在检查U盘数据备份...")
+        return self.backup_from_usb()

@@ -9,6 +9,7 @@ a = Analysis(
     datas=[
         ('demo_data.json', '.'),
         ('student_data.json', '.'),
+        ('student.png', '.'),
     ],
     hiddenimports=[
         'tkinter',
@@ -45,7 +46,8 @@ a = Analysis(
         'ctypes.wintypes',
         'win32gui',  # 添加更多win32相关模块
         'win32con',
-        'win32process'
+        'win32process',
+        'wmi'  # 添加wmi模块用于U盘检测
     ],
     hookspath=[],
     hooksconfig={},

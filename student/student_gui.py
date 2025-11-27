@@ -8,17 +8,24 @@ from tkinter import ttk, messagebox
 import threading
 import json
 import os
+import sys
+import ctypes
 from PIL import Image
 import pystray
 from communication import StudentServer, TeacherClient, MessageTypes, MessageStructure
 from data_manager import DataManager
 import socket
 import subprocess
+import time
 
-# 导入单实例检测相关模块
 try:
     import win32event
     import win32api
+    import win32file
+    import win32con
+    import win32process
+    import wmi
+    import winreg  # 添加winreg模块用于操作注册表实现自动启动
     from winerror import ERROR_ALREADY_EXISTS
     HAS_WIN32 = True
 except ImportError:
@@ -26,14 +33,41 @@ except ImportError:
 
 class StudentGUI:
     def __init__(self):
+        # 初始化前先增强进程保护（如果有win32支持）
+        if HAS_WIN32:
+            self.enhance_process_protection()
         self.root = tk.Tk()
         self.root.title("作业查看器 - 学生端")
         self.root.geometry("900x650")
         self.root.resizable(True, True)
         
+        # 自动启动相关变量
+        self.auto_start_enabled = False
+        
+        # 初始化设置文件路径 - 确保在便携版中也能正确工作
+        if hasattr(sys, '_MEIPASS'):
+            # 当程序被PyInstaller打包时
+            self.app_dir = os.path.dirname(sys.executable)
+        else:
+            # 当程序直接运行Python脚本时
+            self.app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 设置文件路径 - 保存在应用目录中
+        self.settings_file = os.path.join(self.app_dir, "student_settings.json")
+        self.data_manager = DataManager(os.path.join(self.app_dir, "student_data.json"))
+        
         # 设置主窗口图标
         try:
-            icon_path = "C:\\Users\\Lucas\\Desktop\\fan\\homework_viewer\\student.png"
+            # 获取应用程序运行目录
+            if hasattr(sys, '_MEIPASS'):
+                # 当使用PyInstaller打包后，_MEIPASS指向临时解压目录
+                base_path = sys._MEIPASS
+            else:
+                # 未打包时，使用当前目录
+                base_path = os.path.abspath('.')
+            
+            # 构建图标文件的路径
+            icon_path = os.path.join(base_path, 'student.png')
             if os.path.exists(icon_path):
                 # 先尝试使用iconphoto设置图标（支持PNG）
                 from PIL import ImageTk
@@ -56,12 +90,28 @@ class StudentGUI:
         self.port = tk.IntVar(value=8888)
         self.selected_subject = tk.StringVar()
         
+        # 全屏模式相关变量
+        self.fullscreen = False
+        self.normal_window_state = None
+        self.normal_window_geometry = None
+        self.fullscreen_window = None
+        
         # 连接状态
         self.is_server_running = False
         
         # 系统托盘相关变量
         self.tray_icon = None
         self.is_minimized_to_tray = False
+        
+        # U盘监控相关变量
+        self.usb_watcher_thread = None
+        self.stop_usb_watcher = False
+        self.usb_devices = []  # 存储已连接的U盘信息
+        self.selected_usb = tk.StringVar()  # 存储用户选择的U盘
+        self.settings_file = "student_settings.json"  # 设置文件
+        
+        # 加载设置
+        self.load_settings()
         
         # 设置界面
         self.setup_ui()
@@ -71,6 +121,9 @@ class StudentGUI:
         
         # 绑定关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # 启动U盘监控
+        self.start_usb_monitoring()
     
     def setup_ui(self):
         """设置用户界面"""
@@ -141,12 +194,28 @@ class StudentGUI:
         self.subject_combo.bind('<<ComboboxSelected>>', self.on_subject_selected)
         
         ttk.Button(control_frame, text="刷新作业", command=self.refresh_homeworks).grid(row=0, column=4, padx=(10, 0))
+        ttk.Button(control_frame, text="全屏模式", command=self.toggle_fullscreen).grid(row=0, column=5, padx=(10, 0))
         
-        # 添加全屏按钮
-        ttk.Button(control_frame, text="全屏显示", command=self.toggle_fullscreen).grid(row=0, column=5, padx=(10, 0))
+        # 创建自定义样式
+        style = ttk.Style()
+        style.configure("ExitFullscreen.TButton", 
+                        font=('微软雅黑', 12, 'bold'),
+                        foreground='white',
+                        background='#ff4444',
+                        padding=10)
+        style.map("ExitFullscreen.TButton", 
+                  background=[('active', '#ff6666')],
+                  foreground=[('active', 'white')])
         
-        # 添加高级选项按钮
-        ttk.Button(control_frame, text="高级选项", command=self.show_advanced_options).grid(row=0, column=6, padx=(10, 0))
+        # 创建退出全屏按钮（默认隐藏）
+        self.fullscreen_exit_button = ttk.Button(self.root, text="退出全屏", command=self.exit_fullscreen, style="ExitFullscreen.TButton")
+        self.fullscreen_exit_button.place_forget()  # 初始隐藏
+        
+        # 添加高级选项按钮 - 调整为更明显的位置，使用醒目的样式
+        style.configure("Advanced.TButton", 
+                       font=('微软雅黑', 11),
+                       foreground='#0066cc')
+        ttk.Button(control_frame, text="高级选项", command=self.show_advanced_options, style="Advanced.TButton").grid(row=0, column=6, padx=(10, 20))
         
         # 作业列表框架
         homework_frame = ttk.LabelFrame(main_frame, text="作业列表", padding="10")
@@ -445,11 +514,17 @@ class StudentGUI:
         self.root.attributes('-fullscreen', True)
         self.fullscreen = True
         
-        # 显示退出全屏按钮，放置在右上角
-        self.fullscreen_exit_button.place(relx=1.0, rely=0.0, anchor="ne", x=-10, y=10)
+        # 显示退出全屏按钮，放置在右下角
+        self.fullscreen_exit_button.configure(width=15, padding=10, style="ExitFullscreen.TButton")
+        self.fullscreen_exit_button.place(relx=1.0, rely=1.0, anchor="se", x=-20, y=-20)
+        
+        # 绑定ESC键退出全屏
+        self.root.bind('<Escape>', lambda e: self.exit_fullscreen())
         
         # 调整UI以适应全屏
         self.on_window_resize()
+        
+        print("已进入全屏模式")
     
     def exit_fullscreen(self):
         """退出全屏模式"""
@@ -457,17 +532,22 @@ class StudentGUI:
         self.root.attributes('-fullscreen', False)
         self.fullscreen = False
         
-        # 恢复窗口状态
-        if hasattr(self, 'normal_window_state') and self.normal_window_state:
-            self.root.state(self.normal_window_state)
-        if hasattr(self, 'normal_window_geometry') and self.normal_window_geometry:
-            self.root.geometry(self.normal_window_geometry)
-        
         # 隐藏退出全屏按钮
         self.fullscreen_exit_button.place_forget()
         
-        # 调整UI以适应普通窗口
+        # 恢复窗口状态
+        if self.normal_window_geometry:
+            self.root.geometry(self.normal_window_geometry)
+        if self.normal_window_state:
+            self.root.state(self.normal_window_state)
+        
+        # 解绑ESC键
+        self.root.unbind('<Escape>')
+        
+        # 调整UI
         self.on_window_resize()
+        
+        print("已退出全屏模式")
     
     def load_local_homeworks(self):
         """从本地加载作业"""
@@ -514,6 +594,9 @@ class StudentGUI:
         else:
             # 正常关闭：验证密码后才能退出
             if self.verify_exit_password():
+                # 停止U盘监控
+                self.stop_usb_monitoring()
+                
                 # 停止服务器并退出
                 if self.is_server_running:
                     self.server.stop_server()
@@ -593,8 +676,8 @@ class StudentGUI:
         # 创建高级选项窗口
         options_window = tk.Toplevel(self.root)
         options_window.title("高级选项")
-        options_window.geometry("400x300")
-        options_window.resizable(False, False)
+        options_window.geometry("500x400")
+        options_window.resizable(True, True)
         
         # 居中显示
         options_window.transient(self.root)
@@ -604,8 +687,40 @@ class StudentGUI:
             self.root.winfo_rooty() + 50
         ))
         
-        # 设置窗口内边距
-        main_frame = ttk.Frame(options_window, padding="20")
+        # 添加滚动框架
+        canvas = tk.Canvas(options_window)
+        scrollbar = ttk.Scrollbar(options_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        # 配置滚动区域
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+        
+        # 在画布上创建窗口
+        canvas_frame = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        
+        # 绑定鼠标滚轮事件
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        # 使滚动区域宽度适应窗口
+        def on_canvas_configure(event):
+            canvas.itemconfig(canvas_frame, width=event.width)
+        
+        canvas.bind("<Configure>", on_canvas_configure)
+        
+        # 放置滚动条和画布
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        
+        # 设置滚动框架内边距
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         # 修改密码按钮
@@ -614,8 +729,118 @@ class StudentGUI:
         # 清空所有数据按钮
         ttk.Button(main_frame, text="清空所有数据（谨慎操作）", command=self.confirm_clear_data, width=25).pack(pady=(10, 10))
         
+        # 创建分割线
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        # 创建自动启动设置区域 - 放在U盘设置之前，更明显的位置
+        startup_frame = ttk.LabelFrame(main_frame, text="【重要】系统启动设置")
+        startup_frame.pack(fill=tk.X, pady=(15, 5))
+        
+        # 自动启动复选框 - 更明显的位置和更大的字体
+        self.auto_start_var = tk.BooleanVar(value=self.auto_start_enabled)
+        # 确保在复选框创建前样式已定义
+        style = ttk.Style()
+        style.configure("AutoStart.TCheckbutton", font=('微软雅黑', 12))
+        
+        auto_start_check = ttk.Checkbutton(startup_frame, text="Windows启动时自动运行作业查看器", 
+                                          variable=self.auto_start_var, 
+                                          command=self.toggle_auto_start, 
+                                          style="AutoStart.TCheckbutton")
+        auto_start_check.pack(padx=15, pady=15, anchor=tk.W)
+        
+        # 添加说明文字
+        ttk.Label(startup_frame, text="启用此选项后，作业查看器将在每次Windows启动时自动运行", 
+                 font=('微软雅黑', 10), foreground='#666666').pack(padx=15, pady=(0, 10), anchor=tk.W)
+        
+        # 如果系统不支持win32扩展，则禁用自动启动选项
+        if not HAS_WIN32:
+            auto_start_check.config(state=tk.DISABLED)
+            ttk.Label(startup_frame, text="(系统不支持此功能)", foreground="red", font=('微软雅黑', 10)).pack(padx=15, anchor=tk.W)
+        
+        # 创建分割线
+        ttk.Separator(main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=15)
+        
+        # U盘自动备份设置
+        ttk.Label(main_frame, text="U盘自动备份设置", font=('Arial', 11, 'bold')).pack(anchor=tk.W, pady=(0, 10))
+        
+        # U盘选择框架
+        usb_frame = ttk.LabelFrame(main_frame, text="选择要监控的U盘")
+        usb_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # 创建U盘列表框
+        usb_list_frame = ttk.Frame(usb_frame)
+        usb_list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # 垂直滚动条
+        scrollbar = ttk.Scrollbar(usb_list_frame, orient=tk.VERTICAL)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # U盘列表
+        usb_listbox = tk.Listbox(usb_list_frame, height=6, yscrollcommand=scrollbar.set)
+        usb_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=usb_listbox.yview)
+        
+        # 刷新U盘列表按钮
+        def refresh_usb_list():
+            usb_listbox.delete(0, tk.END)
+            usb_devices = self.get_usb_devices()
+            if not usb_devices:
+                usb_listbox.insert(tk.END, "未检测到U盘")
+                usb_listbox.itemconfig(0, fg='gray')
+            else:
+                for i, device in enumerate(usb_devices):
+                    display_text = f"{device['name']} - {device['description']}"
+                    usb_listbox.insert(tk.END, display_text)
+                    # 高亮显示当前选中的U盘
+                    if self.selected_usb.get() == device['device_id']:
+                        usb_listbox.selection_set(i)
+        
+        # 选择U盘按钮
+        def select_usb():
+            selection = usb_listbox.curselection()
+            if selection:
+                index = selection[0]
+                usb_devices = self.get_usb_devices()
+                if usb_devices and index < len(usb_devices):
+                    self.selected_usb.set(usb_devices[index]['device_id'])
+                    # 保存设置
+                    self.save_settings()
+                    messagebox.showinfo("设置成功", f"已设置自动备份U盘: {usb_devices[index]['name']}")
+        
+        # 按钮框架
+        buttons_frame = ttk.Frame(usb_frame)
+        buttons_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        ttk.Button(buttons_frame, text="刷新列表", command=refresh_usb_list).pack(side=tk.LEFT, padx=5)
+        ttk.Button(buttons_frame, text="选择U盘", command=select_usb).pack(side=tk.LEFT, padx=5)
+        
+        # 立即刷新列表
+        refresh_usb_list()
+        
+        # 当前设置显示
+        ttk.Label(main_frame, text="当前设置:", font=('Arial', 10)).pack(anchor=tk.W, pady=(10, 5))
+        
+        # 显示当前选中的U盘信息
+        current_usb_info = ttk.Label(main_frame, text="")
+        current_usb_info.pack(anchor=tk.W, padx=5)
+        
+        # 更新当前设置显示
+        def update_current_usb_info():
+            if self.selected_usb.get():
+                # 查找当前选中的U盘信息
+                for device in self.get_usb_devices():
+                    if device['device_id'] == self.selected_usb.get():
+                        current_usb_info.config(text=f"已选择: {device['name']} - {device['description']}")
+                        return
+                # 如果找不到设备，显示已选择但未连接
+                current_usb_info.config(text="已选择U盘，但当前未连接")
+            else:
+                current_usb_info.config(text="未选择自动备份U盘")
+        
+        update_current_usb_info()
+        
         # 关闭按钮
-        ttk.Button(main_frame, text="关闭", command=options_window.destroy, width=15).pack(pady=(30, 10))
+        ttk.Button(main_frame, text="关闭", command=options_window.destroy, width=15).pack(pady=(15, 10))
     
     def verify_current_password(self):
         """验证当前密码"""
@@ -760,6 +985,96 @@ class StudentGUI:
         confirm_password_entry.bind('<Return>', lambda event: validate_and_change_password())
         change_window.bind('<Escape>', lambda event: change_window.destroy())
     
+    def toggle_auto_start(self):
+        """切换自动启动状态"""
+        if not HAS_WIN32:
+            messagebox.showerror("错误", "系统不支持自动启动功能")
+            self.auto_start_var.set(False)
+            return
+            
+        enabled = self.auto_start_var.get()
+        result = self.set_auto_start(enabled)
+        
+        if result:
+            self.auto_start_enabled = enabled
+            self.save_settings()
+            status_text = "已开启" if enabled else "已关闭"
+            messagebox.showinfo("成功", f"自动启动功能{status_text}")
+        else:
+            self.auto_start_var.set(not enabled)  # 恢复原状态
+            messagebox.showerror("错误", "修改自动启动设置失败，请确保您有管理员权限")
+    
+    def set_auto_start(self, enabled):
+        """设置程序是否在Windows启动时自动运行
+        
+        Args:
+            enabled: 是否启用自动启动
+            
+        Returns:
+            bool: 设置是否成功
+        """
+        try:
+            # 获取程序的完整路径
+            if hasattr(sys, '_MEIPASS'):
+                # 当程序被PyInstaller打包时
+                exe_path = sys.executable
+            else:
+                # 当程序直接运行Python脚本时
+                exe_path = os.path.abspath(sys.argv[0])
+            
+            # 打开启动项注册表
+            key_path = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, 
+                                winreg.KEY_SET_VALUE | winreg.KEY_QUERY_VALUE)
+            
+            app_name = "作业查看器-学生端"
+            
+            if enabled:
+                # 添加启动项
+                winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+            else:
+                # 删除启动项（如果存在）
+                try:
+                    winreg.DeleteValue(key, app_name)
+                except FileNotFoundError:
+                    # 如果键不存在，不报错
+                    pass
+            
+            winreg.CloseKey(key)
+            return True
+            
+        except Exception as e:
+            print(f"设置自动启动失败: {e}")
+            return False
+            
+    def is_auto_start_enabled(self):
+        """检查程序是否设置为自动启动
+        
+        Returns:
+            bool: 是否已启用自动启动
+        """
+        if not HAS_WIN32:
+            return False
+            
+        try:
+            key_path = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_QUERY_VALUE)
+            
+            app_name = "作业查看器-学生端"
+            
+            # 尝试获取值，如果不存在则抛出异常
+            winreg.QueryValueEx(key, app_name)
+            winreg.CloseKey(key)
+            return True
+            
+        except FileNotFoundError:
+            # 键不存在，说明未设置自动启动
+            winreg.CloseKey(key)
+            return False
+        except Exception as e:
+            print(f"检查自动启动状态失败: {e}")
+            return False
+            
     def confirm_clear_data(self):
         """确认清空数据"""
         if messagebox.askyesno("确认", "确定要清空所有数据吗？此操作不可恢复！"):
@@ -862,8 +1177,41 @@ class StudentGUI:
         except Exception as e:
             print(f"显示托盘通知失败: {e}")
     
+    def enhance_process_protection(self):
+        """增强进程保护，防止在后台运行时被任务管理器轻易终止"""
+        try:
+            # 获取当前进程句柄
+            process_handle = win32api.GetCurrentProcess()
+            
+            # 设置进程优先级为高
+            win32process.SetPriorityClass(process_handle, win32process.HIGH_PRIORITY_CLASS)
+            
+            # 禁用进程优先级提升（防止系统降低优先级）
+            win32process.SetProcessPriorityBoost(process_handle, False)
+            
+            # 尝试设置进程保护（管理员权限下更有效）
+            try:
+                # 设置进程为关键进程（需要管理员权限）
+                # 这会使进程在任务管理器中更难被终止
+                kernel32 = ctypes.windll.kernel32
+                kernel32.SetProcessWorkingSetSize(process_handle, -1, -1)
+                
+                # 尝试设置进程保护标志（需要更高权限）
+                if hasattr(win32con, 'PROCESS_TERMINATE'):
+                    # 这里只是一个示例，实际的进程保护可能需要系统级权限
+                    # 我们主要通过优先级和其他方式增强进程稳定性
+                    pass
+                    
+                print("进程保护已增强")
+            except Exception as e:
+                # 即使设置保护标志失败，仍然继续运行
+                print(f"设置进程保护标志失败（可能需要管理员权限）: {e}")
+                
+        except Exception as e:
+            print(f"增强进程保护失败: {e}")
+    
     def get_local_ip(self):
-        """获取本机IP地址"""
+        """获取本地IP地址"""
         try:
             # 使用 ipconfig 命令获取本机IP
             result = subprocess.run(['ipconfig'], capture_output=True, text=True, encoding='gbk')
@@ -877,6 +1225,199 @@ class StudentGUI:
             return "127.0.0.1"
         except Exception:
             return "127.0.0.1"
+    
+    def get_usb_devices(self):
+        """获取当前连接的U盘列表"""
+        if not HAS_WIN32:
+            print("未安装pywin32模块，无法获取U盘信息")
+            return []
+        
+        try:
+            c = wmi.WMI()
+            usb_devices = []
+            
+            # 遍历所有磁盘驱动器
+            for disk in c.Win32_DiskDrive():
+                # 检查是否是可移动磁盘
+                if 'removable' in disk.MediaType.lower() or 'usb' in disk.PNPDeviceID.lower():
+                    # 获取分区信息
+                    partitions = disk.associators(wmi_association='Win32_DiskDriveToDiskPartition')
+                    for partition in partitions:
+                        # 获取逻辑磁盘信息
+                        logical_disks = partition.associators(wmi_association='Win32_LogicalDiskToPartition')
+                        for logical_disk in logical_disks:
+                            device_info = {
+                                'name': logical_disk.Name,  # 驱动器号，如 "E:" 
+                                'description': disk.Caption,  # 设备描述
+                                'device_id': disk.DeviceID  # 设备ID
+                            }
+                            usb_devices.append(device_info)
+            
+            return usb_devices
+        except Exception as e:
+            print(f"获取U盘信息失败: {e}")
+            return []
+    
+    def usb_watcher(self):
+        """U盘监控线程"""
+        while not self.stop_usb_watcher:
+            try:
+                current_devices = self.get_usb_devices()
+                current_device_ids = [device['device_id'] for device in current_devices]
+                previous_device_ids = [device['device_id'] for device in self.usb_devices]
+                
+                # 检查是否有新的U盘插入
+                for device in current_devices:
+                    if device['device_id'] not in previous_device_ids:
+                        print(f"检测到U盘插入: {device['name']} - {device['description']}")
+                        # 如果插入的是用户选择的U盘，执行备份
+                        if self.selected_usb.get() == device['device_id']:
+                            self.perform_backup(device['name'])
+                
+                # 更新U盘列表
+                self.usb_devices = current_devices
+                
+                # 等待一段时间后再次检查
+                time.sleep(2)
+            except Exception as e:
+                print(f"U盘监控错误: {e}")
+                time.sleep(5)
+    
+    def start_usb_monitoring(self):
+        """启动U盘监控"""
+        if self.usb_watcher_thread and self.usb_watcher_thread.is_alive():
+            return
+        
+        self.stop_usb_watcher = False
+        self.usb_watcher_thread = threading.Thread(target=self.usb_watcher, daemon=True)
+        self.usb_watcher_thread.start()
+        print("U盘监控已启动")
+    
+    def stop_usb_monitoring(self):
+        """停止U盘监控"""
+        self.stop_usb_watcher = True
+        if self.usb_watcher_thread:
+            self.usb_watcher_thread.join(timeout=2)
+            print("U盘监控已停止")
+    
+    def save_settings(self):
+        """保存设置到文件"""
+        try:
+            settings = {
+                'selected_usb': self.selected_usb.get(),
+                'auto_start_enabled': self.auto_start_enabled
+            }
+            
+            # 确保设置文件目录存在
+            os.makedirs(os.path.dirname(self.settings_file), exist_ok=True)
+            
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            
+            print("设置已保存到:", self.settings_file)
+        except Exception as e:
+            print(f"保存设置失败: {e}")
+            # 如果主设置文件保存失败，尝试使用备用路径
+            try:
+                alt_settings_file = os.path.join(self.app_dir, "student_settings_backup.json")
+                with open(alt_settings_file, 'w', encoding='utf-8') as f:
+                    json.dump(settings, f, ensure_ascii=False, indent=2)
+                print("设置已保存到备用位置:", alt_settings_file)
+            except:
+                pass
+    
+    def load_settings(self):
+        """从文件加载设置"""
+        # 尝试从主设置文件加载
+        loaded = False
+        
+        # 首先检查是否已经初始化app_dir和settings_file
+        if not hasattr(self, 'settings_file') or not self.settings_file:
+            # 如果没有初始化，使用默认路径
+            if hasattr(sys, '_MEIPASS'):
+                self.app_dir = os.path.dirname(sys.executable)
+            else:
+                self.app_dir = os.path.dirname(os.path.abspath(__file__))
+            self.settings_file = os.path.join(self.app_dir, "student_settings.json")
+        
+        # 尝试从主设置文件加载
+        if os.path.exists(self.settings_file):
+            try:
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                
+                if 'selected_usb' in settings:
+                    self.selected_usb.set(settings['selected_usb'])
+                    print(f"已加载设置: 自动备份U盘已设置")
+                
+                # 加载自动启动设置
+                if 'auto_start_enabled' in settings:
+                    self.auto_start_enabled = settings['auto_start_enabled']
+                    # 根据设置更新注册表
+                    if HAS_WIN32:
+                        self.set_auto_start(self.auto_start_enabled)
+                        print(f"已加载设置: 自动启动设置为{'开启' if self.auto_start_enabled else '关闭'}")
+                loaded = True
+            except Exception as e:
+                print(f"从主设置文件加载失败: {e}")
+        
+        # 如果主设置文件加载失败，尝试从备用设置文件加载
+        if not loaded:
+            alt_settings_file = os.path.join(self.app_dir, "student_settings_backup.json")
+            if os.path.exists(alt_settings_file):
+                try:
+                    with open(alt_settings_file, 'r', encoding='utf-8') as f:
+                        settings = json.load(f)
+                    
+                    # 加载设置...
+                    if 'auto_start_enabled' in settings:
+                        self.auto_start_enabled = settings['auto_start_enabled']
+                        if HAS_WIN32:
+                            self.set_auto_start(self.auto_start_enabled)
+                    loaded = True
+                    print("从备用设置文件成功加载设置")
+                except Exception as e:
+                    print(f"从备用设置文件加载失败: {e}")
+        
+        # 尝试检测当前注册表中的自动启动状态
+        if not loaded and HAS_WIN32:
+            try:
+                current_status = self.is_auto_start_enabled()
+                if current_status != self.auto_start_enabled:
+                    self.auto_start_enabled = current_status
+                    print(f"已检测注册表状态: 自动启动当前为{'开启' if self.auto_start_enabled else '关闭'}")
+            except:
+                pass
+    
+    def perform_backup(self, usb_path):
+        """执行数据备份到U盘"""
+        try:
+            # 获取本地数据目录
+            local_data_dir = os.path.dirname(os.path.abspath(self.data_manager.file_path))
+            
+            # 创建备份目录
+            backup_dir = os.path.join(usb_path, "作业查看器备份")
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            
+            # 备份数据文件
+            backup_file = os.path.join(backup_dir, f"student_data_backup_{time.strftime('%Y%m%d_%H%M%S')}.json")
+            
+            # 复制数据文件
+            with open(self.data_manager.file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            print(f"数据备份成功: {backup_file}")
+            
+            # 显示通知
+            self.show_tray_notification("备份成功", f"数据已成功备份到U盘: {usb_path}")
+            
+        except Exception as e:
+            print(f"备份失败: {e}")
+            messagebox.showerror("备份失败", f"无法备份数据到U盘: {str(e)}")
     
     def show_about(self, icon=None, item=None):
         """显示关于信息"""

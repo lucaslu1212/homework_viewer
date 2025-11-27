@@ -168,17 +168,7 @@ class TeacherGUI:
         ttk.Button(buttons_frame, text="关于", command=self.show_about).pack(side=tk.LEFT, padx=(0, 10))
         ttk.Button(buttons_frame, text="刷新", command=self.refresh_data).pack(side=tk.LEFT, padx=(10, 0))
         
-        # 全屏模式按钮框架
-        fullscreen_frame = ttk.Frame(management_frame)
-        fullscreen_frame.grid(row=0, column=1, sticky=(tk.E), padx=(10, 0))
-        
-        self.fullscreen_var = tk.BooleanVar()
-        self.fullscreen_var.trace('w', self.on_fullscreen_toggle)
-        ttk.Checkbutton(fullscreen_frame, text="全屏模式", variable=self.fullscreen_var).pack(side=tk.RIGHT)
-        
-        # 全屏模式下的临时框架
-        self.fullscreen_window = None
-        self.original_parent = None
+        # 移除了全屏模式相关功能
         
         # 作业列表框架
         list_frame = ttk.Frame(management_frame)
@@ -762,87 +752,11 @@ class TeacherGUI:
         # 更新统计信息
         self.root.after(0, self.update_statistics)
     
-    def on_fullscreen_toggle(self, *args):
-        """全屏模式切换"""
-        if self.fullscreen_var.get():
-            self.enter_fullscreen_mode()
-        else:
-            self.exit_fullscreen_mode()
+
     
-    def enter_fullscreen_mode(self):
-        """进入全屏模式"""
-        # 创建新的顶层窗口
-        self.fullscreen_window = tk.Toplevel(self.root)
-        self.fullscreen_window.title("作业查看 - 全屏模式")
-        self.fullscreen_window.attributes('-fullscreen', True)
-        self.fullscreen_window.attributes('-topmost', True)
-        
-        # 设置背景色
-        self.fullscreen_window.configure(bg='black')
-        
-        # 创建全屏内容框架
-        fullscreen_frame = ttk.Frame(self.fullscreen_window, padding="20")
-        fullscreen_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 创建标题
-        title_label = tk.Label(fullscreen_frame, text="作业列表 - 全屏模式", 
-                              font=("Arial", 20, "bold"), bg='black', fg='white')
-        title_label.pack(pady=(0, 20))
-        
-        # 创建全屏下的作业列表框架
-        fs_list_frame = ttk.Frame(fullscreen_frame)
-        fs_list_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # 设置全屏模式下列的宽度
-        fs_column_widths = {"ID": 60, "学科": 100, "内容": 500, "班级": 120, "老师": 100, "时间": 200, "状态": 100}
-        fs_columns = ("ID", "学科", "内容", "班级", "老师", "时间", "状态")
-        
-        # 创建全屏模式下的作业树形控件
-        self.fullscreen_tree = ttk.Treeview(fs_list_frame, columns=fs_columns, show='headings', height=15)
-        
-        # 设置列标题和宽度（更大）
-        for col in fs_columns:
-            self.fullscreen_tree.heading(col, text=col, font=("Arial", 12, "bold"))
-            self.fullscreen_tree.column(col, width=fs_column_widths.get(col, 120), minwidth=80)
-        
-        # 添加滚动条
-        fs_scrollbar_v = ttk.Scrollbar(fs_list_frame, orient=tk.VERTICAL, command=self.fullscreen_tree.yview)
-        fs_scrollbar_h = ttk.Scrollbar(fs_list_frame, orient=tk.HORIZONTAL, command=self.fullscreen_tree.xview)
-        self.fullscreen_tree.configure(yscrollcommand=fs_scrollbar_v.set, xscrollcommand=fs_scrollbar_h.set)
-        
-        self.fullscreen_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        fs_scrollbar_v.pack(side=tk.RIGHT, fill=tk.Y)
-        fs_scrollbar_h.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # 添加控制按钮框架
-        control_frame = ttk.Frame(fullscreen_frame)
-        control_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        ttk.Button(control_frame, text="退出全屏", command=self.exit_fullscreen_mode).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(control_frame, text="刷新列表", command=self.refresh_fullscreen_list).pack(side=tk.LEFT, padx=(0, 10))
-        ttk.Button(control_frame, text="导出数据", command=self.export_fullscreen_data).pack(side=tk.LEFT)
-        
-        # 复制当前作业列表数据到全屏列表
-        self.refresh_fullscreen_list()
-        
-        # 绑定ESC键退出全屏
-        self.fullscreen_window.bind('<Escape>', lambda e: self.exit_fullscreen_mode())
-        
-        # 全屏窗口关闭事件
-        self.fullscreen_window.protocol("WM_DELETE_WINDOW", self.exit_fullscreen_mode)
-        
-        print("已切换到全屏模式")
+
     
-    def exit_fullscreen_mode(self):
-        """退出全屏模式"""
-        if self.fullscreen_window:
-            self.fullscreen_window.destroy()
-            self.fullscreen_window = None
-        
-        # 重置全屏变量
-        self.fullscreen_var.set(False)
-        
-        print("已退出全屏模式")
+
     
     def request_class_list(self):
         """请求班级列表"""
@@ -854,64 +768,9 @@ class TeacherGUI:
         except Exception as e:
             print(f"发送班级列表请求失败: {e}")
     
-    def refresh_fullscreen_list(self):
-        """刷新全屏模式下的作业列表"""
-        if hasattr(self, 'fullscreen_tree') and self.fullscreen_tree:
-            # 清空全屏列表
-            for item in self.fullscreen_tree.get_children():
-                self.fullscreen_tree.delete(item)
-            
-            # 获取所有作业数据
-            homeworks = self.data_manager.get_homeworks()
-            
-            # 添加到全屏列表
-            for homework in homeworks:
-                values = (
-                    homework.get("id", ""),
-                    homework.get("subject", ""),
-                    homework.get("content", ""),  # 全屏模式下显示完整内容
-                    homework.get("class", ""),
-                    homework.get("teacher", ""),
-                    homework.get("timestamp", ""),
-                    homework.get("status", "")
-                )
-                self.fullscreen_tree.insert("", tk.END, values=values)
+
     
-    def export_fullscreen_data(self):
-        """导出全屏模式下的数据"""
-        try:
-            import csv
-            import os
-            
-            # 获取当前目录
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            filename = os.path.join(current_dir, f"homework_export_{self.get_current_timestamp()}.csv")
-            
-            # 获取作业数据
-            homeworks = self.data_manager.get_homeworks()
-            
-            # 写入CSV文件
-            with open(filename, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                fieldnames = ['ID', '学科', '内容', '班级', '老师', '时间', '状态']
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                
-                writer.writeheader()
-                for homework in homeworks:
-                    writer.writerow({
-                        'ID': homework.get("id", ""),
-                        '学科': homework.get("subject", ""),
-                        '内容': homework.get("content", ""),
-                        '班级': homework.get("class", ""),
-                        '老师': homework.get("teacher", ""),
-                        '时间': homework.get("timestamp", ""),
-                        '状态': homework.get("status", "")
-                    })
-            
-            messagebox.showinfo("导出成功", f"数据已导出到：\n{filename}")
-            print(f"数据已导出到：{filename}")
-            
-        except Exception as e:
-            messagebox.showerror("导出失败", f"导出数据时出错：{str(e)}")
+
     
     def get_current_timestamp(self):
         """获取当前时间戳"""
